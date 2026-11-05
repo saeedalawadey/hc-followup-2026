@@ -2759,4 +2759,36 @@ window.gsSearch=q=>{const r=document.getElementById('gs_r');if(!r)return;const s
   const bs=db.branches.filter(b=>String(b.name||'').toLowerCase().includes(s)).slice(0,5);
   r.innerHTML=(es.map(e=>`<div style="padding:6px 0;border-bottom:1px solid #eee">👤 ${esc(e.name||'—')} · ${esc(e.empNo||'—')} <button class="btn s" onclick="openEmp('${e.id}')">فتح</button></div>`).join('')+bs.map(b=>`<div style="padding:6px 0;border-bottom:1px solid #eee">🏢 ${esc(b.name||'—')} <button class="btn s" onclick="bfForm('${b.id}')">متابعة</button></div>`).join(''))||'<div class="muted">لا توجد نتائج</div>'};
 const _dashB3=dash;dash=function(){return batch3Cards()+_dashB3()};
+/* ===== استيراد المنصة مجمّع حسب رمز الفرع (REG-XX-BYY) ===== */
+window.platImport=async()=>{
+  try{toast('جارٍ جلب الموظفين من المنصة...');await simtrkLoad(false)}catch(e){return toast('تعذر الاتصال بالمنصة: '+(e.message||e),'err')}
+  const rows=((SIMTRK.data&&SIMTRK.data.emp)||[]).filter(r=>nEmp(r.employee_id));
+  if(!rows.length)return toast('لا توجد بيانات موظفين في المنصة','err');
+  const map=(db.settings&&db.settings.platBr)||{};
+  const bl=[...db.branches].sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar'));
+  const groups={};
+  rows.forEach(r=>{const pb=String(r.branch_id||'').trim()||'—';const empNo=nEmp(r.employee_id);
+    const ex=db.emps.find(e=>nEmp(e.empNo)===empNo)||null;
+    (groups[pb]=groups[pb]||[]).push({empNo,name:String(r.employee_name||'').trim(),phone:cphone(r.phone||''),job:String(r.job_title||'').trim(),exists:!!ex})});
+  const autoFor=pb=>bl.find(b=>b.platCode===pb)||bl.find(b=>b.id===pb)||bl.find(b=>cnorm(b.name)===cnorm(pb))||bl.find(b=>b.id===map[pb])||null;
+  window.__pg=Object.entries(groups).sort((a,b)=>b[1].length-a[1].length).map(([pb,list],i)=>({i,pb,list,auto:pb==='—'?null:autoFor(pb),fresh:list.filter(x=>!x.exists).length}));
+  modal(`<h2>📥 استيراد من منصة التدريب</h2>
+    <p class="muted">الموظفون مجمّعون حسب فرع المنصة. اختر الفرع المقابل لكل رمز مرة واحدة، وسيُحفظ الربط ويُطبَّق تلقائيًا في الاستيراد القادم. من له نفس الرقم الوظيفي في النظام لا يُستورد مرة أخرى.</p>
+    <div class="tw" style="max-height:55vh;overflow:auto"><table><thead><tr><th></th><th>فرع المنصة</th><th>عدد الموظفين</th><th>جديد</th><th>الفرع في النظام</th></tr></thead><tbody>
+    ${window.__pg.map(g=>`<tr><td><input type="checkbox" class="pg_c" data-i="${g.i}" ${g.fresh?'checked':''} ${g.fresh?'':'disabled'}></td><td>${esc(g.pb)}</td><td>${g.list.length}</td><td>${g.fresh}</td><td><select class="pg_b" data-i="${g.i}"><option value="">— اختر —</option>${bl.map(b=>`<option value="${b.id}" ${g.auto&&b.id===g.auto.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="bar r"><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn p" onclick="platSave()">استيراد المحدد</button></div>`)};
+window.platAll=v=>document.querySelectorAll('.pg_c:not(:disabled)').forEach(c=>c.checked=v);
+window.platSave=()=>{let ok=0,skip=0;const err=[],added=[];const map=Object.assign({},(db.settings&&db.settings.platBr)||{});
+  document.querySelectorAll('.pg_c').forEach(c=>{if(!c.checked||c.disabled)return;const g=window.__pg[+c.dataset.i];
+    const bid=(document.querySelector(`.pg_b[data-i="${g.i}"]`)||{}).value||'';
+    if(!bid){skip+=g.fresh;return}
+    if(g.pb!=='—'){map[g.pb]=bid;const b=bById(bid);if(b&&!b.platCode)b.platCode=g.pb}
+    g.list.filter(p=>!p.exists).forEach(p=>{
+      const r=addEmp({name:p.name||p.empNo,empNo:p.empNo,branchId:bid,phone:p.phone,jobTitle:p.job,hist:{fails:0,unknown:false,lastDate:'',lastResult:'',note:'مستورد من منصة التدريب'}});
+      if(r&&r.err){err.push(p.empNo+': '+r.err);return}
+      if(r&&r.e)added.push(r.e.id);ok++})});
+  db.settings=db.settings||{};db.settings.platBr=map;
+  window.__lastPlat=added;save();closeModal();
+  toast(`تم استيراد ${ok} موظف${skip?'، وتخطي '+skip+' بدون فرع':''}${err.length?'، وأخطاء: '+err.length:''}`,err.length?'err':'');render()};
 </script></body></html>
