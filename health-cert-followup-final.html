@@ -2643,4 +2643,31 @@ const _settingsBatch2=settingsPage;settingsPage=function(){return tplCard()+_set
 
 /* التنقل: قائمة رسائل الفروع دُمجت داخل متابعة الفروع */
 NAV.splice(0,NAV.length,...NAV.filter(x=>x[0]!=='weekly'));
+/* ===== استيراد الموظفين من منصة التدريب (كل من دخل المنصة) ===== */
+window.platImport=async()=>{
+  try{toast('جارٍ جلب الموظفين من المنصة...');await simtrkLoad(false)}catch(e){return toast('تعذر الاتصال بالمنصة: '+(e.message||e),'err')}
+  const rows=((SIMTRK.data&&SIMTRK.data.emp)||[]).filter(r=>nEmp(r.employee_id));
+  if(!rows.length)return toast('لا توجد بيانات موظفين في المنصة','err');
+  const bl=[...db.branches].sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar'));
+  window.__plat=rows.map((r,i)=>{const empNo=nEmp(r.employee_id),pb=String(r.branch_id||'').trim();
+    const m=bl.find(b=>b.id===pb)||bl.find(b=>cnorm(b.name)===cnorm(pb))||null;
+    const ex=db.emps.find(e=>nEmp(e.empNo)===empNo)||null;
+    return{i,empNo,name:String(r.employee_name||'').trim(),pb,phone:cphone(r.phone||''),job:String(r.job_title||'').trim(),branchId:m?m.id:'',exists:!!ex,existsName:ex?ex.name:''}});
+  modal(`<h2>📥 استيراد من منصة التدريب</h2>
+    <p class="muted">كل من دخل المنصة يظهر هنا. من له نفس الرقم الوظيفي في النظام لا يُستورد مرة أخرى. الفرع يُختار تلقائيًا عند التطابق، وإن لم يتطابق اختره يدويًا. نتائج المنصة لا تدخل في الحالة الرسمية.</p>
+    <div class="tw" style="max-height:55vh;overflow:auto"><table><thead><tr><th><input type="checkbox" checked onchange="platAll(this.checked)"></th><th>الاسم</th><th>الرقم الوظيفي</th><th>فرع المنصة</th><th>الفرع في النظام</th><th>الحالة</th></tr></thead><tbody>
+    ${window.__plat.map(p=>`<tr><td><input type="checkbox" class="pl_c" data-i="${p.i}" ${p.exists?'disabled':'checked'}></td><td>${esc(p.name||'—')}</td><td>${esc(p.empNo)}</td><td>${esc(p.pb||'—')}</td><td><select class="pl_b" data-i="${p.i}" ${p.exists?'disabled':''}><option value="">— اختر —</option>${bl.map(b=>`<option value="${b.id}" ${b.id===p.branchId?'selected':''}>${esc(b.name)}</option>`).join('')}</select></td><td>${p.exists?'موجود: '+esc(p.existsName||''):'جديد'}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="bar r"><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn p" onclick="platSave()">استيراد المحدد</button></div>`)};
+window.platAll=v=>document.querySelectorAll('.pl_c:not(:disabled)').forEach(c=>c.checked=v);
+window.platSave=()=>{let ok=0,skip=0;const err=[];
+  document.querySelectorAll('.pl_c').forEach(c=>{if(!c.checked||c.disabled)return;const p=window.__plat[+c.dataset.i];
+    const bid=(document.querySelector(`.pl_b[data-i="${p.i}"]`)||{}).value||'';
+    if(!bid){skip++;return}
+    const r=addEmp({name:p.name||p.empNo,empNo:p.empNo,branchId:bid,phone:p.phone,jobTitle:p.job,hist:{fails:0,unknown:false,lastDate:'',lastResult:'',note:'مستورد من منصة التدريب'}});
+    if(r&&r.err){err.push(p.empNo+': '+r.err);return}ok++});
+  save();closeModal();
+  toast(`تم استيراد ${ok} موظف${skip?'، وتخطي '+skip+' بدون فرع':''}${err.length?'، وأخطاء: '+err.length:''}`,err.length?'err':'');render()};
+const _impPlatBase=importDlg;importDlg=function(){_impPlatBase();const md=document.querySelector('#mo .md');
+  if(md)md.insertAdjacentHTML('afterbegin','<div style="border:1px dashed #5eead4;border-radius:10px;padding:10px;margin-bottom:10px"><b>من منصة التدريب</b><div class="muted" style="font-size:.85em">استيراد كل الموظفين الذين دخلوا المنصة مع أرقامهم وفروعهم وجوالاتهم</div><button class="btn p" style="margin-top:6px" onclick="platImport()">جلب الموظفين من المنصة</button></div>')};
 </script></body></html>
