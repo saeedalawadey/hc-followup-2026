@@ -2138,7 +2138,8 @@ async function simtrkLoad(silent){
   const qtext={};qt.forEach(x=>{if(String(x.lang)==='ar')qtext[x.qid]=x.text});
   const byQ={};aq.forEach(q=>{const ic=String(q.is_correct).toUpperCase();if(ic!=='TRUE'&&ic!=='FALSE')return;const x=byQ[q.qid]||(byQ[q.qid]={n:0,wrong:0});x.n++;if(ic==='FALSE')x.wrong++});
   const byLang={};att.forEach(a=>{const l=String(a.lang||'—');const x=byLang[l]||(byLang[l]={n:0,pass:0});x.n++;if(a.result==='pass')x.pass++});
-  SIMTRK.data={att:att.length,emp,br,byEmp,mod,byLang,byQ,qtext,aqTotal:aq.length,unansPct:aq.length?Math.round(1000*unans/aq.length)/10:0,timeouts,at:new Date().toISOString()};
+  const atts=att.map(a=>{const x=Object.assign({},a);delete x.state_json;return x});
+  SIMTRK.data={att:att.length,atts,emp,br,byEmp,mod,byLang,byQ,qtext,aqTotal:aq.length,unansPct:aq.length?Math.round(1000*unans/aq.length)/10:0,timeouts,at:new Date().toISOString()};
   SIMTRK.err='';
 }
 window.simtrkRefresh=async()=>{SIMTRK.busy=true;SIMTRK.err='';try{await simtrkLoad(false)}catch(e){SIMTRK.err='تعذر التحديث: '+(e.message||e)}finally{SIMTRK.busy=false}render()};
@@ -2793,4 +2794,18 @@ window.platSave=()=>{let ok=0,skip=0;const err=[],added=[];const map=Object.assi
   db.settings=db.settings||{};db.settings.platBr=map;
   window.__lastPlat=added;save();closeModal();
   toast(`تم استيراد ${ok} موظف${skip?'، وتخطي '+skip+' بدون فرع':''}${err.length?'، وأخطاء: '+err.length:''}`,err.length?'err':'');render()};
+/* ===== محاولات المنصة لكل موظف (تُربط بالرقم الوظيفي) ===== */
+window.platAttsOf=e=>{const d=SIMTRK.data;if(!d||!Array.isArray(d.atts))return null;const k=nk(e.empNo);return d.atts.filter(a=>nk(a.employee_id)===k).sort((a,b)=>String(b.started_at||'').localeCompare(String(a.started_at||'')))};
+const _profPlatB6=profile;
+profile=function(){let h=_profPlatB6();const e=emp(cur);if(!e)return h;
+  const L=platAttsOf(e);const RL={pass:'ناجح',fail:'راسب'};
+  let body;
+  if(L===null)body=`<p class="muted">بيانات المنصة غير محمّلة بعد.</p><button class="btn" onclick="simtrkRefresh()">تحميل بيانات المنصة</button>`;
+  else if(!L.length)body='<p class="muted">لا توجد محاولات لهذا الرقم الوظيفي في المنصة.</p>';
+  else{const ps=L.filter(a=>a.result==='pass').length,fs_=L.filter(a=>a.result==='fail').length;
+    body=`<p class="muted">إجمالي المحاولات: ${L.length} · ناجح: ${ps} · راسب: ${fs_} · آخر محاولة: ${esc(String(L[0].started_at||'').slice(0,10))}</p>`+
+      T_(['التاريخ','اللغة','النسبة','النتيجة','الصحيحة','الخاطئة','سبب الإنهاء'],L.map(a=>[
+        esc(String(a.started_at||'').slice(0,16).replace('T',' ')),esc(a.lang||'—'),esc(a.percent||'—')+'%',
+        esc(RL[a.result]||'لم تكتمل'),esc(a.correct_count||'—'),esc(a.wrong_count||'—'),esc(a.end_reason||'—')]))};
+  return h+`<div class="card"><h2>محاولات المنصة (التدريب)</h2>${body}</div>`};
 </script></body></html>
