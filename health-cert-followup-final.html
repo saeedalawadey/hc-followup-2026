@@ -2124,10 +2124,11 @@ function nk(v){return String(v??'').trim().replace(/^0+(?=\d)/,'')}
 function simtrkKey(e){return nk(e&&e.empNo)}
 async function simtrkLoad(silent){
   let tok;try{tok=await hcToken(false)}catch(e){if(silent)throw e;tok=await hcToken(true)}
-  const r=await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+SIMTRK.SHEET_ID+'/values:batchGet?ranges=Attempts!A:R&ranges=Employees!A:R&ranges=AttemptQuestions!A:L&ranges=QuestionTranslations!A:E',{headers:{Authorization:'Bearer '+tok}});
+  const r=await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+SIMTRK.SHEET_ID+'/values:batchGet?ranges=Attempts!A:R&ranges=Employees!A:R&ranges=AttemptQuestions!A:L&ranges=QuestionTranslations!A:E&ranges=Branches!A:D',{headers:{Authorization:'Bearer '+tok}});
   if(!r.ok)throw new Error(r.status+': '+(await r.text()).slice(0,200));
   const b=await r.json();
-  const att=simtrkObjs(b.valueRanges[0]),emp=simtrkObjs(b.valueRanges[1]),aq=simtrkObjs(b.valueRanges[2]),qt=simtrkObjs(b.valueRanges[3]);
+  const att=simtrkObjs(b.valueRanges[0]),emp=simtrkObjs(b.valueRanges[1]),aq=simtrkObjs(b.valueRanges[2]),qt=simtrkObjs(b.valueRanges[3]),brs=simtrkObjs(b.valueRanges[4]||{values:[]});
+  const br={};brs.forEach(x=>{const c=String(x.branch_id||'').trim();if(c)br[c]=String(x.branch_name||'').trim()});
   const byEmp={};
   att.forEach(a=>{const k=nk(a.employee_id);const x=byEmp[k]||(byEmp[k]={n:0,pass:0,fail:0,last:''});x.n++;if(a.result==='pass')x.pass++;if(a.result==='fail')x.fail++;const t=String(a.ended_at||a.started_at||'');if(t>x.last)x.last=t});
   const mod={};SIMTRK_MODS.forEach(([m])=>mod[m]={n:0,c:0});
@@ -2137,7 +2138,7 @@ async function simtrkLoad(silent){
   const qtext={};qt.forEach(x=>{if(String(x.lang)==='ar')qtext[x.qid]=x.text});
   const byQ={};aq.forEach(q=>{const ic=String(q.is_correct).toUpperCase();if(ic!=='TRUE'&&ic!=='FALSE')return;const x=byQ[q.qid]||(byQ[q.qid]={n:0,wrong:0});x.n++;if(ic==='FALSE')x.wrong++});
   const byLang={};att.forEach(a=>{const l=String(a.lang||'—');const x=byLang[l]||(byLang[l]={n:0,pass:0});x.n++;if(a.result==='pass')x.pass++});
-  SIMTRK.data={att:att.length,emp,byEmp,mod,byLang,byQ,qtext,aqTotal:aq.length,unansPct:aq.length?Math.round(1000*unans/aq.length)/10:0,timeouts,at:new Date().toISOString()};
+  SIMTRK.data={att:att.length,emp,br,byEmp,mod,byLang,byQ,qtext,aqTotal:aq.length,unansPct:aq.length?Math.round(1000*unans/aq.length)/10:0,timeouts,at:new Date().toISOString()};
   SIMTRK.err='';
 }
 window.simtrkRefresh=async()=>{SIMTRK.busy=true;SIMTRK.err='';try{await simtrkLoad(false)}catch(e){SIMTRK.err='تعذر التحديث: '+(e.message||e)}finally{SIMTRK.busy=false}render()};
@@ -2770,12 +2771,13 @@ window.platImport=async()=>{
   rows.forEach(r=>{const pb=String(r.branch_id||'').trim()||'—';const empNo=nEmp(r.employee_id);
     const ex=db.emps.find(e=>nEmp(e.empNo)===empNo)||null;
     (groups[pb]=groups[pb]||[]).push({empNo,name:String(r.employee_name||'').trim(),phone:cphone(r.phone||''),job:String(r.job_title||'').trim(),exists:!!ex})});
-  const autoFor=pb=>bl.find(b=>b.platCode===pb)||bl.find(b=>b.id===pb)||bl.find(b=>cnorm(b.name)===cnorm(pb))||bl.find(b=>b.id===map[pb])||null;
-  window.__pg=Object.entries(groups).sort((a,b)=>b[1].length-a[1].length).map(([pb,list],i)=>({i,pb,list,auto:pb==='—'?null:autoFor(pb),fresh:list.filter(x=>!x.exists).length}));
+  const pbName=pb=>((SIMTRK.data&&SIMTRK.data.br)||{})[pb]||'';
+  const autoFor=pb=>bl.find(b=>b.platCode===pb)||bl.find(b=>b.id===map[pb])||(pbName(pb)&&bl.find(b=>cnorm(b.name)===cnorm(pbName(pb))))||bl.find(b=>b.id===pb)||null;
+  window.__pg=Object.entries(groups).sort((a,b)=>b[1].length-a[1].length).map(([pb,list],i)=>({i,pb,pname:pbName(pb),list,auto:pb==='—'?null:autoFor(pb),fresh:list.filter(x=>!x.exists).length}));
   modal(`<h2>📥 استيراد من منصة التدريب</h2>
     <p class="muted">الموظفون مجمّعون حسب فرع المنصة. اختر الفرع المقابل لكل رمز مرة واحدة، وسيُحفظ الربط ويُطبَّق تلقائيًا في الاستيراد القادم. من له نفس الرقم الوظيفي في النظام لا يُستورد مرة أخرى.</p>
-    <div class="tw" style="max-height:55vh;overflow:auto"><table><thead><tr><th></th><th>فرع المنصة</th><th>عدد الموظفين</th><th>جديد</th><th>الفرع في النظام</th></tr></thead><tbody>
-    ${window.__pg.map(g=>`<tr><td><input type="checkbox" class="pg_c" data-i="${g.i}" ${g.fresh?'checked':''} ${g.fresh?'':'disabled'}></td><td>${esc(g.pb)}</td><td>${g.list.length}</td><td>${g.fresh}</td><td><select class="pg_b" data-i="${g.i}"><option value="">— اختر —</option>${bl.map(b=>`<option value="${b.id}" ${g.auto&&b.id===g.auto.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></td></tr>`).join('')}
+    <div class="tw" style="max-height:55vh;overflow:auto"><table><thead><tr><th></th><th>فرع المنصة</th><th>اسم الفرع في المنصة</th><th>عدد الموظفين</th><th>جديد</th><th>الفرع في النظام</th></tr></thead><tbody>
+    ${window.__pg.map(g=>`<tr><td><input type="checkbox" class="pg_c" data-i="${g.i}" ${g.fresh?'checked':''} ${g.fresh?'':'disabled'}></td><td>${esc(g.pb)}</td><td>${esc(g.pname||'—')}</td><td>${g.list.length}</td><td>${g.fresh}</td><td><select class="pg_b" data-i="${g.i}"><option value="">— اختر —</option>${bl.map(b=>`<option value="${b.id}" ${g.auto&&b.id===g.auto.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></td></tr>`).join('')}
     </tbody></table></div>
     <div class="bar r"><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn p" onclick="platSave()">استيراد المحدد</button></div>`)};
 window.platAll=v=>document.querySelectorAll('.pg_c:not(:disabled)').forEach(c=>c.checked=v);
