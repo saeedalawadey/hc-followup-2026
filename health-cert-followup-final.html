@@ -2670,4 +2670,93 @@ window.platSave=()=>{let ok=0,skip=0;const err=[];
   toast(`تم استيراد ${ok} موظف${skip?'، وتخطي '+skip+' بدون فرع':''}${err.length?'، وأخطاء: '+err.length:''}`,err.length?'err':'');render()};
 const _impPlatBase=importDlg;importDlg=function(){_impPlatBase();const md=document.querySelector('#mo .md');
   if(md)md.insertAdjacentHTML('afterbegin','<div style="border:1px dashed #5eead4;border-radius:10px;padding:10px;margin-bottom:10px"><b>من منصة التدريب</b><div class="muted" style="font-size:.85em">استيراد كل الموظفين الذين دخلوا المنصة مع أرقامهم وفروعهم وجوالاتهم</div><button class="btn p" style="margin-top:6px" onclick="platImport()">جلب الموظفين من المنصة</button></div>')};
+/* ===== الدفعة الثالثة: تحسينات متعددة ===== */
+/* 1) محرر جهات الاتصال داخل صفحة متابعة الفروع */
+window.ctEdit=bid=>{const b=bById(bid);if(!b)return;
+  const row=k=>{const who=(b.contacts||[]).find(c=>TPL_ROLES[k].re.test(c.title))||{},em=(b.emails||[]).find(e=>TPL_ROLES[k].re.test(e.title))||{};
+    return `<h3>${TPL_ROLES[k].label}</h3><div class="fg"><label>الاسم<input name="${k}_n" value="${esc(who.name||'')}"></label><label>الجوال<input name="${k}_p" inputmode="tel" value="${esc(who.phone||'')}"></label><label>الإيميل<input name="${k}_e" inputmode="email" value="${esc(em.email||'')}"></label></div>`};
+  dlgf('جهات اتصال: '+String(b.name||'').replace(/^فرع\s+/,''),Object.keys(TPL_ROLES).map(row).join(''),v=>{
+    const bb=bById(bid);if(!bb)return{err:'الفرع غير موجود'};
+    const isRole=t=>Object.values(TPL_ROLES).some(r=>r.re.test(t||''));
+    bb.contacts=(bb.contacts||[]).filter(c=>!isRole(c.title));bb.emails=(bb.emails||[]).filter(e=>!isRole(e.title));
+    Object.keys(TPL_ROLES).forEach(k=>{const lb=TPL_ROLES[k].label;
+      if(v[k+'_n']||v[k+'_p'])bb.contacts.push({name:v[k+'_n']||'',title:lb,phone:cphone(v[k+'_p']||'')});
+      if(v[k+'_e'])bb.emails.push({title:lb,email:v[k+'_e']})})})};
+
+window.outCard=function(){
+  const list=db.branches.filter(b=>b.active!==false);
+  const rows=list.map(b=>{const st=outState(b);
+    const cls=st.status==='تذكير مستحق'?'color:#b91c1c;font-weight:bold':st.status==='تم الرد'?'color:#15803d':'';
+    const lastTxt=st.last?new Date(st.last.at).toLocaleDateString('ar-SA'):'—';
+    const btn=(key,ch)=>{const who=outContact(b,TPL_ROLES[key].re)||{},em=(b.emails||[]).find(e=>TPL_ROLES[key].re.test(e.title));
+      const ok=ch==='wa'?!!who.phone:!!em;return ok?`<button class="btn s" onclick="outSend('${b.id}','${key}','${ch}')">${TPL_ROLES[key].label} · ${ch==='wa'?'واتساب':'إيميل'}</button>`:''};
+    const btns=['mgr','fin','adm'].map(k=>btn(k,'wa')+btn(k,'mail')).join(' ');
+    const extra=`<button class="btn s" onclick="ctEdit('${b.id}')">✏️ جهات الاتصال</button> <button class="btn s" onclick="copyBranchList('${b.id}')">📋 قائمة الفرع</button> <button class="btn s" onclick="outReply('${b.id}')">تسجيل رد</button>`;
+    return [esc(b.name||'—'),`<span style="${cls}">${esc(st.status)}</span>`,esc(lastTxt),st.sent,st.round>3?'—':st.round,outReceived(b,st),`<div style="display:flex;gap:4px;flex-wrap:wrap">${btns} ${extra}</div>`]});
+  const log=(db.outreach||[]).slice(-15).reverse().map(x=>{const b=bById(x.branchId)||{};return [esc(String(b.name||'—').replace(/^فرع\s+/,'')),esc(x.type),x.type==='إرسال'?esc(TPL_ROLES[x.to]?TPL_ROLES[x.to].label:(x.to||'')):(x.count!=null?'عدد: '+x.count:''),x.type==='إرسال'?(x.ch==='wa'?'واتساب':'إيميل'):'',esc(new Date(x.at).toLocaleString('ar-SA'))]});
+  return `${outSenderCard()}<div class="card"><h2>متابعة طلب قوائم الراسبين من الفروع</h2><p class="muted">كل فرع له حالة واحدة. الإرسال يستخدم قوالب الرسائل من الإعدادات. التذكير يظهر في لوحة التحكم عند استحقاقه. «المستلمون» يحسب الموظفين المضافين للفرع منذ أول طلب.</p>${rows.length?T_(['الفرع','الحالة','آخر إرسال','عدد الإرسال','الجولة القادمة','المستلمون','إجراءات'],rows):'<p class="muted">لا توجد فروع بعد.</p>'}</div>
+  <div class="card"><h2>سجل الإرسال والردود الأخيرة</h2>${log.length?T_(['الفرع','النوع','المستلم / العدد','القناة','التاريخ'],log):'<p class="muted">لا يوجد سجل بعد.</p>'}</div>`};
+
+/* 4) حفظ مطابقة أسماء فروع المنصة + 9) التراجع عن آخر استيراد */
+window.platImport=async()=>{
+  try{toast('جارٍ جلب الموظفين من المنصة...');await simtrkLoad(false)}catch(e){return toast('تعذر الاتصال بالمنصة: '+(e.message||e),'err')}
+  const rows=((SIMTRK.data&&SIMTRK.data.emp)||[]).filter(r=>nEmp(r.employee_id));
+  if(!rows.length)return toast('لا توجد بيانات موظفين في المنصة','err');
+  const map=(db.settings&&db.settings.platBr)||{};
+  const bl=[...db.branches].sort((a,b)=>String(a.name).localeCompare(String(b.name),'ar'));
+  window.__plat=rows.map((r,i)=>{const empNo=nEmp(r.employee_id),pb=String(r.branch_id||'').trim();
+    const auto=bl.find(b=>b.id===pb)||bl.find(b=>cnorm(b.name)===cnorm(pb))||bl.find(b=>b.id===map[cnorm(pb)])||null;
+    const ex=db.emps.find(e=>nEmp(e.empNo)===empNo)||null;
+    return{i,empNo,name:String(r.employee_name||'').trim(),pb,phone:cphone(r.phone||''),job:String(r.job_title||'').trim(),branchId:auto?auto.id:'',autoId:auto?auto.id:'',exists:!!ex,existsName:ex?ex.name:''}});
+  modal(`<h2>📥 استيراد من منصة التدريب</h2>
+    <p class="muted">كل من دخل المنصة يظهر هنا. من له نفس الرقم الوظيفي في النظام لا يُستورد مرة أخرى. الفرع يُختار تلقائيًا عند التطابق أو من آخر اختيار محفوظ، وإن لم يتطابق اختره يدويًا. نتائج المنصة لا تدخل في الحالة الرسمية.</p>
+    <div class="tw" style="max-height:55vh;overflow:auto"><table><thead><tr><th><input type="checkbox" checked onchange="platAll(this.checked)"></th><th>الاسم</th><th>الرقم الوظيفي</th><th>فرع المنصة</th><th>الفرع في النظام</th><th>الحالة</th></tr></thead><tbody>
+    ${window.__plat.map(p=>`<tr><td><input type="checkbox" class="pl_c" data-i="${p.i}" ${p.exists?'disabled':'checked'}></td><td>${esc(p.name||'—')}</td><td>${esc(p.empNo)}</td><td>${esc(p.pb||'—')}</td><td><select class="pl_b" data-i="${p.i}" ${p.exists?'disabled':''}><option value="">— اختر —</option>${bl.map(b=>`<option value="${b.id}" ${b.id===p.branchId?'selected':''}>${esc(b.name)}</option>`).join('')}</select></td><td>${p.exists?'موجود: '+esc(p.existsName||''):'جديد'}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="bar r"><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn p" onclick="platSave()">استيراد المحدد</button></div>`)};
+window.platSave=()=>{let ok=0,skip=0;const err=[],added=[];const map=Object.assign({},(db.settings&&db.settings.platBr)||{});let learned=0;
+  document.querySelectorAll('.pl_c').forEach(c=>{if(!c.checked||c.disabled)return;const p=window.__plat[+c.dataset.i];
+    const bid=(document.querySelector(`.pl_b[data-i="${p.i}"]`)||{}).value||'';
+    if(!bid){skip++;return}
+    if(p.pb&&bid!==p.autoId){map[cnorm(p.pb)]=bid;learned++}
+    const r=addEmp({name:p.name||p.empNo,empNo:p.empNo,branchId:bid,phone:p.phone,jobTitle:p.job,hist:{fails:0,unknown:false,lastDate:'',lastResult:'',note:'مستورد من منصة التدريب'}});
+    if(r&&r.err){err.push(p.empNo+': '+r.err);return}
+    if(r&&r.e)added.push(r.e.id);ok++});
+  if(learned){db.settings=db.settings||{};db.settings.platBr=map}
+  window.__lastPlat=added;save();closeModal();
+  toast(`تم استيراد ${ok} موظف${skip?'، وتخطي '+skip+' بدون فرع':''}${err.length?'، وأخطاء: '+err.length:''}`,err.length?'err':'');render()};
+window.platUndo=async()=>{const ids=new Set(window.__lastPlat||[]);if(!ids.size)return;
+  if(!await ask(`حذف ${ids.size} موظفًا أُضيفوا في آخر استيراد من المنصة؟`,{ok:'تراجع'}))return;
+  db.emps=db.emps.filter(e=>!ids.has(e.id));IDX=null;window.__lastPlat=[];save();render();toast('تم التراجع عن الاستيراد')};
+
+/* 5) تقرير المالية */
+function finReport(){
+  const L=E().filter(e=>!e.closed);const by={};
+  L.forEach(e=>{const f=failsInCycle(e);if(f<2)return;const k=e.branchId||'';const x=by[k]||(by[k]={n185:0,n1132:0,sum:0});if(f>=3){x.n1132++;x.sum+=1132}else{x.n185++;x.sum+=185}});
+  const rows=Object.entries(by).sort((a,b)=>b[1].sum-a[1].sum).map(([bid,x])=>[esc((bById(bid)||{}).name||'بدون فرع'),x.n185,x.n1132,x.sum.toLocaleString('ar-SA')]);
+  const tot=rows.reduce((t,r)=>t+ (+String(r[3]).replace(/[^\d]/g,'')||0),0);
+  modal(`<h2>💰 تقرير الرسوم المستحقة</h2><p class="muted">الموظف الذي له محاولتان غير مجتازتين: رسوم الاختبار 185. وإذا وصل إلى 3 محاولات: الدورة الكاملة 1132. يُحسب من الدورة الحالية لكل موظف.</p>
+    ${rows.length?T_(['الفرع','عدد 185','عدد 1132','الإجمالي'],rows):'<p class="muted">لا توجد رسوم مستحقة حاليًا.</p>'}
+    <p><b>الإجمالي الكلي: ${tot.toLocaleString('ar-SA')}</b></p>
+    <div class="bar r"><button class="btn" onclick="closeModal()">إغلاق</button><button class="btn p" onclick="window.print()">طباعة</button></div>`)}
+
+/* بطاقات لوحة التحكم الجديدة */
+function batch3Cards(){
+  let h='';
+  if(!db.branches.length)h+=`<div class="card"><h2>ابدأ بإعداد النظام</h2><p class="muted">لا توجد فروع بعد. استورد الفروع من ملف Excel أو أضف فرعًا يدويًا، ثم استورد الموظفين من المنصة أو من ملف.</p><div class="bar r"><button class="btn p" onclick="importDlg()">استيراد من Excel</button><button class="btn" onclick="brForm()">إضافة فرع</button></div></div>`;
+  if(window.__lastPlat&&window.__lastPlat.length)h+=`<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><b>↩️ آخر استيراد من المنصة</b><div class="muted" style="font-size:.85em">أُضيف ${window.__lastPlat.length} موظف في هذه الجلسة</div></div><button class="btn s" onclick="platUndo()">تراجع</button></div>`;
+  h+=`<div class="card"><h2>🔎 بحث سريع</h2><input placeholder="اسم الموظف أو الرقم الوظيفي أو الفرع" oninput="gsSearch(this.value)" style="width:100%;padding:8px"><div id="gs_r" style="margin-top:8px"></div></div>`;
+  const cf=simtrkConflicts();
+  if(cf.length)h+=`<div class="card"><h2>⚠️ تعارضات تحتاج قرارك (${cf.length})</h2>${T_(['الموظف','الرقم','الملاحظة'],cf.slice(0,15).map(x=>[esc(x.e.name||'—'),esc(x.e.empNo||'—'),`${esc(x.why)} <button class="btn s" onclick="openEmp('${x.e.id}')">فتح</button>`]))}</div>`;
+  const days=(db.settings&&+db.settings.overdueDays)||10;
+  const od=db.branches.filter(b=>bfLive(b.id)>0).map(b=>{const rs=bfCyc(b.id);const last=rs.length?rs[rs.length-1].date:'';const d=last?Math.floor((Date.now()-Date.parse(last))/864e5):9999;return{b,last,d,live:bfLive(b.id)}}).filter(x=>x.d>=days).sort((a,b)=>b.d-a.d);
+  if(od.length)h+=`<div class="card"><h2>⏰ فروع بدون متابعة منذ ${days} يومًا (${od.length})</h2>${T_(['الفرع','آخر متابعة','أيام','موظفون مفتوحون','إجراء'],od.slice(0,20).map(x=>[esc(x.b.name||'—'),esc(x.last||'لا توجد'),x.d>=9999?'—':x.d,x.live,`<button class="btn s" onclick="bfForm('${x.b.id}')">تسجيل متابعة</button>`]))}</div>`;
+  h+=`<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><b>💰 تقرير الرسوم المستحقة</b><div class="muted" style="font-size:.85em">حسب الفرع، جاهز للطباعة</div></div><button class="btn s" onclick="finReport()">عرض التقرير</button></div>`;
+  return h}
+window.gsSearch=q=>{const r=document.getElementById('gs_r');if(!r)return;const s=String(q||'').trim().toLowerCase();
+  if(s.length<2){r.innerHTML='';return}
+  const es=db.emps.filter(e=>!e.closed&&((e.name||'').toLowerCase().includes(s)||String(e.empNo||'').includes(s))).slice(0,10);
+  const bs=db.branches.filter(b=>String(b.name||'').toLowerCase().includes(s)).slice(0,5);
+  r.innerHTML=(es.map(e=>`<div style="padding:6px 0;border-bottom:1px solid #eee">👤 ${esc(e.name||'—')} · ${esc(e.empNo||'—')} <button class="btn s" onclick="openEmp('${e.id}')">فتح</button></div>`).join('')+bs.map(b=>`<div style="padding:6px 0;border-bottom:1px solid #eee">🏢 ${esc(b.name||'—')} <button class="btn s" onclick="bfForm('${b.id}')">متابعة</button></div>`).join(''))||'<div class="muted">لا توجد نتائج</div>'};
+const _dashB3=dash;dash=function(){return batch3Cards()+_dashB3()};
 </script></body></html>
