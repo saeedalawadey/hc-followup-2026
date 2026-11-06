@@ -518,11 +518,11 @@ function dlgf(title,body,fn){modal(`<h2>${title}</h2><div class="fg" id="mf">${b
 $('#mfs').onclick=()=>{const v={};document.querySelectorAll('#mf [name]').forEach(x=>{if(x.type==='checkbox'){if(x.checked)(v[x.name]=v[x.name]||[]).push(x.value)}else v[x.name]=x.value.trim()});const r=fn(v);if(r&&r.err)return toast(r.err,'err');save();closeModal();toast('تم الحفظ ✅');render()}}
 const T_=(head,rows,cl)=>`<div class="tw"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr ${cl?`class="cl" onclick="${cl(r)}"`:''}>${(r.c||r).map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 /* ===== التنقل ===== */
-const NAV=[['dash','🏠','لوحة التحكم'],['bfu','📞','متابعة الفروع'],['emps','👥','الموظفون'],['batches','🗂️','الدفعات'],['branches','🏢','المناطق والفروع'],['reports','📊','التقارير'],['imp','📥','استيراد Excel'],['bak','💾','نسخ احتياطي / استعادة'],['set','⚙️','الإعدادات']];
+const NAV=[['dash','🏠','لوحة التحكم'],['trk','🎓','متابعة المنصة'],['bfu','📞','متابعة الفروع'],['emps','👥','الموظفون'],['batches','🗂️','الدفعات'],['branches','🏢','المناطق والفروع'],['reports','📊','التقارير'],['imp','📥','استيراد Excel'],['bak','💾','نسخ احتياطي / استعادة'],['set','⚙️','الإعدادات']];
 function go(p){if(p==='add')return empForm();if(p==='imp')return importDlg();if(p==='exp')return doExport();if(p==='bak')return backupDlg();page=p;$('#side').classList.remove('open');render();scrollTo(0,0)}
 const openEmp=id=>{cur=id;page='emp';render();scrollTo(0,0)};
 function render(){$('#side').innerHTML=`<div class="brand">${esc(db.settings.org||'نظام المتابعة')}<small>متابعة الراسبين</small></div>`+NAV.map(([k,i,l])=>`<button class="nv ${page===k||(page==='emp'&&k==='emps')?'on':''}" onclick="go('${k}')"><i>${i}</i>${l}</button>`).join('');
-const P={contacts:()=>contactsPage(),weekly:()=>weeklyPage(),bulk:()=>bulkPage(),quality:()=>qualityPage(),topwrong:()=>topWrongPage(),simtrk:()=>simtrkPage(),dash,bfu:bfPage,emps:empsPage,emp:profile,branches:branchesPage,batches:batchesPage,batch:batchPage,reports:repPage,set:settingsPage}[page];
+const P={contacts:()=>contactsPage(),weekly:()=>weeklyPage(),bulk:()=>bulkPage(),quality:()=>qualityPage(),topwrong:()=>topWrongPage(),simtrk:()=>simtrkPage(),trk:()=>trkPage(),dash,bfu:bfPage,emps:empsPage,emp:profile,branches:branchesPage,batches:batchesPage,batch:batchPage,reports:repPage,set:settingsPage}[page];
 $('#main').innerHTML=(db.showDemo?'<div class="demo np">⚠️ وضع العرض التجريبي مفعّل: بيانات demo تدخل في الإحصائيات. أوقفه من الإعدادات.</div>':'')+P()+'<footer>إعداد وتنسيق وتطوير مبارك العواضي</footer>';draw()}
 const draw=()=>{if($('#res')&&page==='emps')drawEmps();if($('#res')&&page==='reports')drawRep();if($('#bres')&&page==='bfu')drawBF()};
 /* ===== لوحة التحكم ===== */
@@ -2124,11 +2124,12 @@ function nk(v){return String(v??'').trim().replace(/^0+(?=\d)/,'')}
 function simtrkKey(e){return nk(e&&e.empNo)}
 async function simtrkLoad(silent){
   let tok;try{tok=await hcToken(false)}catch(e){if(silent)throw e;tok=await hcToken(true)}
-  const r=await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+SIMTRK.SHEET_ID+'/values:batchGet?ranges=Attempts!A:R&ranges=Employees!A:R&ranges=AttemptQuestions!A:L&ranges=QuestionTranslations!A:E&ranges=Branches!A:D',{headers:{Authorization:'Bearer '+tok}});
+  const r=await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+SIMTRK.SHEET_ID+'/values:batchGet?ranges=Attempts!A:R&ranges=Employees!A:R&ranges=AttemptQuestions!A:L&ranges=QuestionTranslations!A:E&ranges=Branches!A:D&ranges=TrainingProgress!A:J&ranges=RegistrationRequests!A:P&ranges=Sessions!A:D',{headers:{Authorization:'Bearer '+tok}});
   if(!r.ok)throw new Error(r.status+': '+(await r.text()).slice(0,200));
   const b=await r.json();
   const att=simtrkObjs(b.valueRanges[0]),emp=simtrkObjs(b.valueRanges[1]),aq=simtrkObjs(b.valueRanges[2]),qt=simtrkObjs(b.valueRanges[3]),brs=simtrkObjs(b.valueRanges[4]||{values:[]});
   const br={};brs.forEach(x=>{const c=String(x.branch_id||'').trim();if(c)br[c]=String(x.branch_name||'').trim()});
+  const prog=simtrkObjs(b.valueRanges[5]||{values:[]}),regs=simtrkObjs(b.valueRanges[6]||{values:[]}),sess=simtrkObjs(b.valueRanges[7]||{values:[]}).map(x=>({employee_id:x.employee_id,created_at:x.created_at}));
   const byEmp={};
   att.forEach(a=>{const k=nk(a.employee_id);const x=byEmp[k]||(byEmp[k]={n:0,pass:0,fail:0,last:''});x.n++;if(a.result==='pass')x.pass++;if(a.result==='fail')x.fail++;const t=String(a.ended_at||a.started_at||'');if(t>x.last)x.last=t});
   const mod={};SIMTRK_MODS.forEach(([m])=>mod[m]={n:0,c:0});
@@ -2139,7 +2140,7 @@ async function simtrkLoad(silent){
   const byQ={};aq.forEach(q=>{const ic=String(q.is_correct).toUpperCase();if(ic!=='TRUE'&&ic!=='FALSE')return;const x=byQ[q.qid]||(byQ[q.qid]={n:0,wrong:0});x.n++;if(ic==='FALSE')x.wrong++});
   const byLang={};att.forEach(a=>{const l=String(a.lang||'—');const x=byLang[l]||(byLang[l]={n:0,pass:0});x.n++;if(a.result==='pass')x.pass++});
   const atts=att.map(a=>{const x=Object.assign({},a);delete x.state_json;return x});
-  SIMTRK.data={att:att.length,atts,emp,br,byEmp,mod,byLang,byQ,qtext,aqTotal:aq.length,unansPct:aq.length?Math.round(1000*unans/aq.length)/10:0,timeouts,at:new Date().toISOString()};
+  SIMTRK.data={att:att.length,atts,emp,br,prog,regs,sess,byEmp,mod,byLang,byQ,qtext,aqTotal:aq.length,unansPct:aq.length?Math.round(1000*unans/aq.length)/10:0,timeouts,at:new Date().toISOString()};
   SIMTRK.err='';
 }
 window.simtrkRefresh=async()=>{SIMTRK.busy=true;SIMTRK.err='';try{await simtrkLoad(false)}catch(e){SIMTRK.err='تعذر التحديث: '+(e.message||e)}finally{SIMTRK.busy=false}render()};
@@ -2551,7 +2552,7 @@ const _bfSaveBase3=bfSave;bfSave=async function(){const n=BFU().length,pk=window
     if(pk.email&&!b.emails.some(e=>e.email===pk.email))b.emails.push({title:pk.role||'',email:pk.email});
     save()}}};
 /* ===== تجميع القائمة الجانبية في مجموعات ===== */
-const SIDE_GROUPS=[['الرئيسية',['dash','bfu','emps','batches']],['المتابعة',['branches','simtrk','contacts','weekly','bulk','quality','topwrong']],['التقارير',['reports','imp']],['النظام',['bak','set']]];
+const SIDE_GROUPS=[['الرئيسية',['dash','bfu','emps','batches']],['المتابعة',['trk','branches','simtrk','contacts','weekly','bulk','quality','topwrong']],['التقارير',['reports','imp']],['النظام',['bak','set']]];
 function sideGroups(){const el=$('#side');if(!el||page==='gsync')return;const map=Object.fromEntries(NAV.map(x=>[x[0],x])),used=new Set();
   const btn=k=>{const [key,ic,lb]=map[k];used.add(k);return `<button class="nv ${page===key||(page==='emp'&&key==='emps')?'on':''}" onclick="go('${key}')"><i>${ic}</i>${lb}</button>`};
   let h=`<div class="brand">${esc(db.settings.org||'نظام المتابعة')}<small>متابعة الراسبين</small></div>`;
@@ -2808,4 +2809,51 @@ profile=function(){let h=_profPlatB6();const e=emp(cur);if(!e)return h;
         esc(String(a.started_at||'').slice(0,16).replace('T',' ')),esc(a.lang||'—'),esc(a.percent||'—')+'%',
         esc(RL[a.result]||'لم تكتمل'),esc(a.correct_count||'—'),esc(a.wrong_count||'—'),esc(a.end_reason||'—')]))};
   return h+`<div class="card"><h2>محاولات المنصة (التدريب)</h2>${body}</div>`};
+/* ===== متابعة المنصة: سطر لكل موظف + تفاصيل عند الفتح ===== */
+const TRK_UNITS=14,TRK_STATES=['لم يدخل المنصة','دخل ولم يبدأ','يدرس','اجتاز المحاكاة','جاهز للاختبار الرسمي','موقوف (رسوب)'];
+const TRK_RL={pass:'ناجح',fail:'راسب'};
+window.__trkF=window.__trkF||'all';
+window.trkRow=e=>{const d=SIMTRK.data,k=nk(e.empNo);
+  const regs=(d.regs||[]).filter(r=>nk(r.employee_id)===k),sess=(d.sess||[]).filter(s=>nk(s.employee_id)===k);
+  const pe=(d.emp||[]).find(x=>nk(x.employee_id)===k),pst=pe?String(pe.status||''):'';
+  const atts=platAttsOf(e)||[],prog=(d.prog||[]).filter(p=>nk(p.employee_id)===k);
+  const entered=regs.some(r=>r.status==='approved')||sess.length>0;
+  const passed=atts.some(a=>a.result==='pass'),started=prog.length>0||atts.length>0;
+  const units=new Set(prog.filter(p=>p.passed_at).map(p=>p.unit_id)).size;
+  let st;
+  if(!entered)st=TRK_STATES[0];
+  else if(pst==='suspended_failures')st=TRK_STATES[5];
+  else if(pst==='completed_ready')st=TRK_STATES[4];
+  else if(passed)st=TRK_STATES[3];
+  else if(started)st=TRK_STATES[2];
+  else st=TRK_STATES[1];
+  const times=[...sess.map(s=>s.created_at),...prog.map(p=>p.updated_at),...atts.map(a=>a.ended_at||a.started_at)].map(x=>String(x||'')).filter(Boolean).sort();
+  return {e,st,units,att:atts.length,lastRes:atts[0]?(TRK_RL[atts[0].result]||'لم تكتمل'):'—',last:times.length?times[times.length-1]:''}};
+window.trkSet=f=>{window.__trkF=f;render()};
+function trkPage(){
+  const d=SIMTRK.data;
+  if(!d)return `<div class="card"><h2>🎓 متابعة المنصة</h2><p class="muted">بيانات المنصة غير محمّلة بعد.</p><button class="btn p" onclick="simtrkRefresh()">تحميل بيانات المنصة</button></div>`;
+  const rows=db.emps.filter(e=>!e.closed).map(trkRow).sort((a,b)=>String(b.last).localeCompare(String(a.last)));
+  const f=window.__trkF,view=f==='all'?rows:rows.filter(r=>r.st===f);
+  const chips=[['all','الكل',rows.length],...TRK_STATES.map(s=>[s,s,rows.filter(r=>r.st===s).length])]
+    .map(([k,l,n])=>`<button class="btn ${f===k?'p':''}" onclick="trkSet('${k}')">${esc(l)} (${n})</button>`).join(' ');
+  const body=T_(['الموظف','الفرع','الحالة','الوحدات','محاولات المحاكاة','آخر نتيجة','آخر نشاط'],
+    view.map(r=>({id:r.e.id,c:[esc(r.e.name),esc((bById(r.e.branchId)||{}).name||'—'),esc(r.st),`${r.units} / ${TRK_UNITS}`,r.att,esc(r.lastRes),esc(String(r.last||'—').slice(0,16).replace('T',' '))]})),
+    r=>`openEmp('${r.id}')`);
+  return `<div class="card"><h2>🎓 متابعة المنصة</h2><p class="muted">كل موظف في سطر واحد، ويفتح تفاصيله عند الضغط. الحالة تُحسب من بيانات المنصة: التسجيل، والدروس، والمحاكاة، والحالة المسجلة في المنصة. عدد الوحدات من ${TRK_UNITS} (13 وحدة والاختبار النهائي).</p><div style="margin:8px 0;display:flex;gap:6px;flex-wrap:wrap">${chips}</div>${body}</div>`}
+window.trkEvLoad=async id=>{const e=emp(id);if(!e)return;
+  try{toast('جارٍ تحميل الخط الزمني...');let tok;try{tok=await hcToken(false)}catch(x){tok=await hcToken(true)}
+    const r=await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+SIMTRK.SHEET_ID+'/values/AttemptEvents!A:F',{headers:{Authorization:'Bearer '+tok}});
+    if(!r.ok)throw new Error(r.status);const j=await r.json();const objs=simtrkObjs({values:j.values||[]});
+    window.__evt=window.__evt||{};window.__evt[nk(e.empNo)]=objs.filter(x=>nk(x.employee_id)===nk(e.empNo)).sort((a,b)=>String(a.at).localeCompare(String(b.at)));
+    render()}catch(x){toast('تعذر تحميل الأحداث: '+(x.message||x),'err')}};
+const _profTrkB7=profile;
+profile=function(){let h=_profTrkB7();const e=emp(cur);if(!e||!SIMTRK.data)return h;
+  const k=nk(e.empNo),prog=(SIMTRK.data.prog||[]).filter(p=>nk(p.employee_id)===k);
+  const units=prog.length?T_(['الوحدة','الدروس المكتملة','المحاولات','أفضل نتيجة','آخر نتيجة','تاريخ الاجتياز'],
+    prog.slice().sort((a,b)=>String(a.unit_id).localeCompare(String(b.unit_id),'en',{numeric:true})).map(p=>{let n=0;try{n=JSON.parse(p.lessons_done||'[]').length}catch(x){}
+      return [esc(p.unit_id==='final'?'الاختبار النهائي':p.unit_id),n,esc(p.attempts||'—'),esc(p.best_score||'—'),esc(p.last_score||'—'),esc(String(p.passed_at||'—').slice(0,10))]})):'<p class="muted">لا يوجد تقدم في الدروس لهذا الموظف.</p>';
+  const ev=(window.__evt||{})[k];
+  const evBody=ev?(ev.length?T_(['الوقت','النوع','التفاصيل'],ev.slice(-300).map(x=>[esc(String(x.at||'').slice(0,16).replace('T',' ')),esc(x.type),esc(String(x.detail_json||'').slice(0,120))])):'<p class="muted">لا توجد أحداث.</p>'):`<button class="btn" onclick="trkEvLoad('${e.id}')">تحميل الخط الزمني للمحاولات</button>`;
+  return h+`<div class="card"><h2>تقدم الدروس في المنصة</h2>${units}</div><div class="card"><h2>الخط الزمني للمحاولات</h2>${evBody}</div>`};
 </script></body></html>
