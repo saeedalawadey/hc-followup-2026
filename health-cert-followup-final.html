@@ -2914,4 +2914,24 @@ window.trkLookupCard=q=>{
   return card(`<h3 style="margin:12px 0 0">${esc(e.name)}</h3><p class="muted">رقم وظيفي ${esc(e.empNo)} · ${esc((bById(e.branchId)||{}).name||'—')}</p>${grid}<p style="margin-top:10px"><button class="btn" onclick="openEmp('${e.id}')">فتح صفحة الموظف</button></p>`)};
 const _trkPageLk=trkPage;
 trkPage=function(){return trkLookupCard(window.__trkQ||'')+_trkPageLk()};
+/* ===== تنظيم قائمة التقارير حسب الفئات (مستوحى من تنظيم تقارير نسخة العرض) ===== */
+const RGROUPS=[
+  ['التقرير الشامل',['comp']],
+  ['الموظفون والمتابعة',['rec','fol']],
+  ['الفروع',['br','brl','bfr']],
+  ['الاختبارات الرسمية',['off','offd']],
+  ['التدريب والمحاكاة',['int','simr','gsim','trkr','dif']]
+];
+const _repPageGrp=repPage;
+repPage=function(){let h=_repPageGrp();
+  const a=h.indexOf('<div class="bar">'),b=h.indexOf('\n<div class="fg">');
+  if(a<0||b<0||b<a)return h;
+  const used=new Set(RGROUPS.flatMap(g=>g[1]));
+  const btn=k=>`<button class="btn ${R.type===k?'p':''}" onclick="setR('type','${k}')">${RTY[k]}</button>`;
+  const groups=RGROUPS.map(([t,keys])=>[t,keys.filter(k=>RTY[k])]).filter(g=>g[1].length);
+  const rest=Object.keys(RTY).filter(k=>!used.has(k));
+  if(rest.length)groups.push(['أخرى',rest]);
+  const html=groups.map(([t,keys])=>`<div style="margin:6px 0 10px"><div class="muted" style="font-weight:700;margin-bottom:4px">${esc(t)}</div><div class="bar" style="margin:0">${keys.map(btn).join('')}</div></div>`).join('');
+  return h.slice(0,a)+html+h.slice(b);
+};
 </script></body></html>
