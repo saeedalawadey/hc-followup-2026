@@ -2856,4 +2856,62 @@ profile=function(){let h=_profTrkB7();const e=emp(cur);if(!e||!SIMTRK.data)retur
   const ev=(window.__evt||{})[k];
   const evBody=ev?(ev.length?T_(['الوقت','النوع','التفاصيل'],ev.slice(-300).map(x=>[esc(String(x.at||'').slice(0,16).replace('T',' ')),esc(x.type),esc(String(x.detail_json||'').slice(0,120))])):'<p class="muted">لا توجد أحداث.</p>'):`<button class="btn" onclick="trkEvLoad('${e.id}')">تحميل الخط الزمني للمحاولات</button>`;
   return h+`<div class="card"><h2>تقدم الدروس في المنصة</h2>${units}</div><div class="card"><h2>الخط الزمني للمحاولات</h2>${evBody}</div>`};
+/* ===== تقرير متابعة المنصة (نفس حالات صفحة متابعة المنصة، مع فلتر الفرع وخصائص الطباعة) ===== */
+RTY.trkr='تقرير متابعة المنصة (المسار التدريبي)';
+const _repTrkR=rep;
+rep=function(){if(R.type!=='trkr')return _repTrkR();
+  const d=SIMTRK.data;
+  if(!d)return {title:'تقرير متابعة المنصة',head:['البيان'],rows:[],sum:[['بيانات المنصة','غير محمّلة — حدّث بيانات المنصة أولًا']]};
+  const all=db.emps.filter(e=>!e.closed&&(!R.branch||e.branchId===R.branch)).map(trkRow);
+  const cnt=s=>all.filter(r=>r.st===s).length;
+  // قاعدة: المحاولة الراسبة تبقى مسجلة للموظف ولا تُلغى بالنجاح لاحقًا (دراسة أو اجتياز لاحق لا يمحو الرسوب في هذا التقرير)
+  const hasFail=r=>(platAttsOf(r.e)||[]).some(a=>a.result==='fail');
+  const L=all.filter(r=>!R.trk||(R.trk==='__fail'?hasFail(r):r.st===R.trk)).sort((a,b)=>String(b.last).localeCompare(String(a.last)));
+  const rows=L.map(r=>{const b=bById(r.e.branchId)||{},at=platAttsOf(r.e)||[];
+    return [(rg(b.regionId)||{}).name||'—',b.name||'—',r.e.name||'—',r.e.empNo||'—',r.st,`${r.units} / ${TRK_UNITS}`,at.length,at.filter(a=>a.result==='pass').length,at.filter(a=>a.result==='fail').length,String(r.last||'—').slice(0,10)]});
+  const brn=R.branch?((bById(R.branch)||{}).name||''):'';
+  const failN=all.filter(hasFail).length;
+  return {title:'تقرير متابعة المنصة'+(R.trk?' — '+(R.trk==='__fail'?'لديهم محاولة راسبة':R.trk):'')+(brn?' — '+brn:''),
+    head:['المنطقة','الفرع','اسم الموظف','الرقم الوظيفي','الحالة في المنصة','الوحدات (من 14)','محاولات المحاكاة','الناجحة','الراسبة','آخر نشاط'],
+    rows,
+    sum:[['دخلوا المسار التدريبي',all.length-cnt(TRK_STATES[0])],['لم يدخلوا المنصة',cnt(TRK_STATES[0])],['يدرسون حاليًا',cnt(TRK_STATES[2])],['اجتازوا المحاكاة',cnt(TRK_STATES[3])+cnt(TRK_STATES[4])],['راسبون (لديهم محاولة راسبة)',failN],['موقوفون بسبب الرسوب (المنصة)',cnt(TRK_STATES[5])]]};
+};
+const _repPageTrkR=repPage;
+repPage=function(){const h=_repPageTrkR();if(R.type!=='trkr')return h;
+  const a=h.indexOf('<label>حالة المتابعة<select'),end='</select></label>',b=h.indexOf(end,a);
+  if(a<0||b<0)return h;
+  return h.slice(0,a)+`<label>حالة المنصة<select onchange="setR('trk',this.value)"><option value="">الكل</option><option value="__fail" ${R.trk==='__fail'?'selected':''}>لديه محاولة راسبة</option>${TRK_STATES.map(s=>`<option ${R.trk===s?'selected':''}>${s}</option>`).join('')}</select></label>`+h.slice(b+end.length)};
+const _exportRepTrkR=exportRep;
+exportRep=function(){if(R.type!=='trkr')return _exportRepTrkR();const d=rep(),wb=XLSX.utils.book_new();wb.Workbook={Views:[{RTL:true}]};
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([d.head,...d.rows]),'متابعة المنصة');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['البيان','القيمة'],...d.sum]),'الإحصائيات');
+  XLSX.writeFile(wb,'platform-tracking-report-'+today()+'.xlsx');toast('تم تصدير تقرير متابعة المنصة')};
+/* ===== بحث بالرقم الوظيفي في متابعة المنصة: الصورة الكاملة للموظف ===== */
+window.trkLookup=()=>{window.__trkQ=((document.getElementById('trkq')||{}).value||'').trim();render()};
+window.trkLookupCard=q=>{
+  const card=body=>`<div class="card"><h2>بحث بالرقم الوظيفي</h2><div style="display:flex;gap:6px;flex-wrap:wrap"><input id="trkq" value="${esc(q)}" placeholder="أدخل الرقم الوظيفي" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')trkLookup()"><button class="btn p" onclick="trkLookup()">بحث</button></div>${body}</div>`;
+  if(!q)return card('');
+  const d=SIMTRK.data;
+  if(!d)return card('<p class="muted">حدّث بيانات المنصة أولًا.</p>');
+  const k=nk(q),e=db.emps.find(x=>!x.closed&&nk(x.empNo)===k);
+  if(!e)return card('<p class="muted">لا يوجد موظف بهذا الرقم الوظيفي.</p>');
+  const r=trkRow(e),at=platAttsOf(e)||[];
+  const fails=at.filter(a=>a.result==='fail'),passes=at.filter(a=>a.result==='pass');
+  const byStart=(a,b)=>String(a.started_at||'').localeCompare(String(b.started_at||''));
+  const lastFail=fails.slice().sort(byStart).pop(),lastPass=passes.slice().sort(byStart).pop();
+  const passAfter=!!(lastFail&&lastPass&&String(lastPass.started_at||'')>String(lastFail.started_at||''));
+  const now=!fails.length?'لم يرسب':passAfter?'تجاوز الرسوب':'مازال راسبًا';
+  const nowColor=now==='مازال راسبًا'?'#b91c1c':now==='تجاوز الرسوب'?'#15803d':'inherit';
+  const short=s=>esc(String(s||'—').slice(0,16).replace('T',' '));
+  const kv=(l,v)=>`<div style="border:1px solid var(--line,#e5e7eb);border-radius:10px;padding:10px"><span class="muted">${l}</span><br><b>${v}</b></div>`;
+  const grid=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px">`+
+    kv('الوضع الآن',`<span style="color:${nowColor}">${now}</span>`)+
+    kv('سجل الرسوب',fails.length?`نعم (${fails.length}) — آخرها ${short(lastFail.started_at)}`:'لا')+
+    kv('الاجتياز',passes.length?`نعم (${passes.length}) — آخرها ${short(lastPass.started_at)}`:'لا')+
+    kv('الحالة في المنصة',esc(r.st))+
+    kv('الوحدات المجتازة',`${r.units} / ${TRK_UNITS}`)+
+    kv('آخر نشاط',short(r.last))+`</div>`;
+  return card(`<h3 style="margin:12px 0 0">${esc(e.name)}</h3><p class="muted">رقم وظيفي ${esc(e.empNo)} · ${esc((bById(e.branchId)||{}).name||'—')}</p>${grid}<p style="margin-top:10px"><button class="btn" onclick="openEmp('${e.id}')">فتح صفحة الموظف</button></p>`)};
+const _trkPageLk=trkPage;
+trkPage=function(){return trkLookupCard(window.__trkQ||'')+_trkPageLk()};
 </script></body></html>
