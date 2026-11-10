@@ -2934,4 +2934,69 @@ repPage=function(){let h=_repPageGrp();
   const html=groups.map(([t,keys])=>`<div style="margin:6px 0 10px"><div class="muted" style="font-weight:700;margin-bottom:4px">${esc(t)}</div><div class="bar" style="margin:0">${keys.map(btn).join('')}</div></div>`).join('');
   return h.slice(0,a)+html+h.slice(b);
 };
+/* ===== إجراءات جماعية: تواصل / محاكاة داخلية / موعد الاختبار الرسمي (النتيجة الرسمية تُدخل فردياً) ===== */
+const BK_ACT={contact:'تواصل',sim:'محاكاة داخلية',exam:'موعد الاختبار الرسمي'};
+window.bkSel=window.bkSel||new Set();
+window.bkF=window.bkF||{branch:'',region:'',status:'',act:'contact'};
+window.bkSetF=(k,v)=>{bkF[k]=v;render()};
+window.bkSetAct=v=>{bkF.act=v;render()};
+window.bkToggle=(id,on)=>{on?bkSel.add(id):bkSel.delete(id);const n=document.getElementById('bkN');if(n)n.textContent=bkSel.size};
+window.bkAllFiltered=on=>{const L=bkList();L.forEach(e=>on?bkSel.add(e.id):bkSel.delete(e.id));
+  document.querySelectorAll('input[name=bk]').forEach(c=>c.checked=on);const n=document.getElementById('bkN');if(n)n.textContent=bkSel.size};
+function bkList(){return db.emps.filter(e=>!e.closed&&(!bkF.branch||e.branchId===bkF.branch)&&(!bkF.region||(bById(e.branchId)||{}).regionId===bkF.region)&&(!bkF.status||fs(e)===bkF.status))}
+function bkFields(act){const S=db.settings;
+  if(act==='contact')return fi('b_date','التاريخ','date',today())+fsel('b_method','الطريقة',S.methods,'',1)+fsel('b_party','الطرف',S.parties,'',1)+fsel('b_outcome','النتيجة',S.outcomes,'',1)+fta('b_notes','نص الرسالة / ملاحظات')+fi('b_nextAction','الإجراء القادم')+fi('b_nextDate','تاريخ الإجراء القادم','date');
+  if(act==='sim')return fi('b_date','تاريخ المحاكاة','date',today())+fi('b_score','الدرجة','number','','step=any')+fi('b_max','من','number','','step=any')+fi('b_pct','أو النسبة المئوية %','number','','min=0 max=100 step=any')+fta('b_notes','ملاحظات')+`<div class="w"><span class="muted">الصعوبات (اختياري)</span><div class="ck">${S.diffs.map(d=>`<label><input type="checkbox" name="b_diff" value="${esc(d)}">${esc(d)}</label>`).join('')}</div></div>`+fi('b_newDiff','صعوبة مخصصة (تُضاف للقائمة)');
+  return fi('b_d','تاريخ الاختبار الرسمي المتوقع','date',today())}
+function bkRead(){const g=n=>{const x=document.querySelector(`#bkForm [name="${n}"]`);return x?x.value:''};
+  if(bkF.act==='contact')return {date:g('b_date'),method:g('b_method'),party:g('b_party'),outcome:g('b_outcome'),notes:g('b_notes'),nextAction:g('b_nextAction'),nextDate:g('b_nextDate')};
+  if(bkF.act==='sim')return {date:g('b_date'),score:g('b_score'),max:g('b_max'),pct:g('b_pct'),notes:g('b_notes'),difficulty:[...document.querySelectorAll('#bkForm [name="b_diff"]:checked')].map(x=>x.value),newDiff:g('b_newDiff')};
+  return {d:g('b_d')}}
+function bkValidate(act,o){
+  if(act==='contact'){if(!o.date||!o.method||!o.outcome)return 'التاريخ والطريقة والنتيجة مطلوبة'}
+  else if(act==='sim'){if(!o.date)return 'أدخل تاريخ المحاكاة';const p=o.pct!==''?+o.pct:(+o.max>0&&o.score!==''?+o.score/+o.max*100:NaN);if(isNaN(p)||p<0||p>100)return 'أدخل النسبة (0–100) أو الدرجة مع الدرجة الكبرى'}
+  else if(!o.d)return 'حدد التاريخ';
+  return ''}
+function bkMsg(t,e){return String(t||'').replace(/\{الاسم\}/g,e.name||'').replace(/\{(الرقم|الرقم الوظيفي)\}/g,e.empNo||'').replace(/\{الفرع\}/g,bn(e))}
+window.bkPreview=()=>{
+  const ids=[...bkSel].filter(id=>emp(id));
+  if(!ids.length)return toast('لم تحدد أي موظف','err');
+  const o=bkRead(),err=bkValidate(bkF.act,o);if(err)return toast(err,'err');
+  const rows=ids.map(id=>{const e=emp(id);return {e,skip:e.closed?'المتابعة مغلقة':''}});
+  const ok=rows.filter(r=>!r.skip).length;
+  window.bkPending={act:bkF.act,o,ids};
+  modal(`<h2>معاينة: ${BK_ACT[bkF.act]}</h2><p class="muted">سيُطبَّق على ${ok} موظف، وسيُتخطى ${rows.length-ok}. لن يُكتب شيء قبل تأكيدك.</p>
+  <div class="tw" style="max-height:50vh;overflow:auto">${T_(['الموظف','الرقم الوظيفي','الفرع','الحالة','النتيجة'],rows.map(r=>[esc(r.e.name||'—'),esc(r.e.empNo||'—'),esc(bn(r.e)),esc(fs(r.e)),r.skip?`<span style="color:#b91c1c">يُتخطى: ${esc(r.skip)}</span>`:'سيُطبَّق']))}</div>
+  <div class="bar r"><button class="btn" onclick="closeModal()">إلغاء</button><button class="btn p" ${ok?'':'disabled'} onclick="bkRun()">تنفيذ على ${ok} موظف</button></div>`)};
+window.bkRun=async()=>{const P=window.bkPending;if(!P)return;
+  if(!(await ask(`تنفيذ «${BK_ACT[P.act]}» على ${P.ids.length} موظف؟ يمكنك التراجع عن الدفعة من القائمة أدناه.`,{ok:'تنفيذ'})))return;
+  const bid='bk'+uid(),log={id:bid,at:new Date().toISOString(),act:P.act,items:[],skipped:[]};
+  P.ids.forEach(id=>{const e=emp(id);if(!e)return;
+    if(e.closed)return log.skipped.push([e.name||'—','المتابعة مغلقة']);
+    if(P.act==='contact'){const r=addContact(id,{...P.o,notes:bkMsg(P.o.notes,e)});if(r.err)return log.skipped.push([e.name||'—',r.err]);if(r.t){r.t.batch=bid;log.items.push({k:'contact',id:r.t.id})}}
+    else if(P.act==='sim'){const r=addSim(id,P.o);if(r.err)return log.skipped.push([e.name||'—',r.err]);if(r.s){r.s.batch=bid;log.items.push({k:'sim',id:r.s.id})}}
+    else{log.items.push({k:'exam',id,prev:e.examDate||''});e.examDate=P.o.d}});
+  db.bulkLog=[log,...(db.bulkLog||[])].slice(0,50);
+  window.bkPending=null;bkSel.clear();save();closeModal();
+  toast(`تم التنفيذ على ${log.items.length} موظف${log.skipped.length?'، وتُخطّي '+log.skipped.length:''}`,log.skipped.length&&!log.items.length?'err':'');render()};
+window.bkUndo=async bid=>{const log=(db.bulkLog||[]).find(x=>x.id===bid);if(!log||log.undone)return;
+  if(!(await ask('التراجع يحذف السجلات التي أُنشئت في هذه الدفعة ويعيد مواعيد الاختبار السابقة. متابعة؟',{ok:'تراجع'})))return;
+  log.items.forEach(it=>{if(it.k==='contact')db.contacts=db.contacts.filter(c=>c.id!==it.id);else if(it.k==='sim')db.sims=db.sims.filter(s=>s.id!==it.id);else if(it.k==='exam'){const e=emp(it.id);if(e)e.examDate=it.prev}});
+  log.undone=true;save();render();toast('تم التراجع عن الدفعة')};
+function bulkPage(){
+  const L=bkList(),shown=L.slice(0,500),bl=brs(),regs=db.regions||[];
+  const sel=(k,opts,cur,lab)=>`<label>${lab}<select onchange="bkSetF('${k}',this.value)"><option value="">الكل</option>${opts.map(o=>`<option value="${esc(o.v)}" ${cur===o.v?'selected':''}>${esc(o.t)}</option>`).join('')}</select></label>`;
+  const filters=`<div class="fg">${sel('branch',bl.map(b=>({v:b.id,t:b.name})),bkF.branch,'الفرع')}${sel('region',regs.map(r=>({v:r.id,t:r.name})),bkF.region,'المنطقة')}${sel('status',STATUSES.map(s=>({v:s,t:s})),bkF.status,'الحالة')}</div>`;
+  const table=shown.length?T_(['','الموظف','الرقم الوظيفي','الفرع','الحالة'],shown.map(e=>({c:[`<input type="checkbox" name="bk" value="${esc(e.id)}" ${bkSel.has(e.id)?'checked':''} onchange="bkToggle('${esc(e.id)}',this.checked)">`,esc(e.name||'—'),esc(e.empNo||'—'),esc(bn(e)),esc(fs(e))]}))):'<p class="muted">لا يوجد موظفون بهذه الفلاتر.</p>';
+  const actBar=`<div class="bar">${Object.entries(BK_ACT).map(([k,l])=>`<button class="btn ${bkF.act===k?'p':''}" onclick="bkSetAct('${k}')">${esc(l)}</button>`).join('')}</div>`;
+  const hint=bkF.act==='contact'?'<p class="muted">في النص يمكن كتابة {الاسم} و{الرقم} و{الفرع}، وتُستبدل لكل موظف تلقائيًا.</p>':'';
+  const logs=(db.bulkLog||[]).slice(0,10).map(x=>[esc(String(x.at).slice(0,16).replace('T',' ')),esc(BK_ACT[x.act]||x.act),x.items.length,x.skipped.length,x.undone?'تم التراجع':`<button class="btn" onclick="bkUndo('${esc(x.id)}')">تراجع</button>`]);
+  return `<h1>إجراءات جماعية</h1>
+  <div class="card"><h2>1. اختر الموظفين</h2>${filters}
+    <div class="bar"><span>المحددون: <b id="bkN">${bkSel.size}</b></span><button class="btn" onclick="bkAllFiltered(true)">تحديد كل النتائج (${L.length})</button><button class="btn" onclick="bkAllFiltered(false)">إلغاء التحديد</button></div>
+    ${table}${L.length>500?`<p class="muted">يُعرض أول 500 موظف من ${L.length}، والتحديد يشمل الكل.</p>`:''}</div>
+  <div class="card"><h2>2. اختر الإجراء وبياناته</h2>${actBar}<div id="bkForm" class="fg">${bkFields(bkF.act)}</div>${hint}
+    <p class="muted">النتيجة الرسمية لا تُدخل بالجملة، وتُسجَّل من صفحة كل موظف.</p>
+    <div class="bar r"><button class="btn p" onclick="bkPreview()">معاينة قبل التنفيذ</button></div></div>
+  <div class="card"><h2>آخر الدفعات</h2>${logs.length?T_(['التاريخ','الإجراء','نُفّذ','تُخطّي','التراجع'],logs):'<p class="muted">لا توجد دفعات بعد.</p>'}</div>`}
 </script></body></html>
