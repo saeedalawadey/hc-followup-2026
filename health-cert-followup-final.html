@@ -2999,4 +2999,33 @@ function bulkPage(){
     <p class="muted">النتيجة الرسمية لا تُدخل بالجملة، وتُسجَّل من صفحة كل موظف.</p>
     <div class="bar r"><button class="btn p" onclick="bkPreview()">معاينة قبل التنفيذ</button></div></div>
   <div class="card"><h2>آخر الدفعات</h2>${logs.length?T_(['التاريخ','الإجراء','نُفّذ','تُخطّي','التراجع'],logs):'<p class="muted">لا توجد دفعات بعد.</p>'}</div>`}
+/* ===== اختيار موظفين لأي تقرير قبل الطباعة (بدون تحديد = كل الموظفين) ===== */
+window.RSEL=window.RSEL||new Set();
+const RSEL_OFF=['bfr','gsim'];
+const rselTxt=v=>String(v==null?'':v).replace(/<[^>]+>/g,'').trim();
+function rselList(){const q=(window.__rsq||'').trim();
+  return E().filter(e=>!q||norm(e.name||'').includes(norm(q))||String(e.empNo||'').includes(q))}
+function rselRows(){return rselList().slice(0,300).map(e=>`<label style="display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid #eee"><input type="checkbox" value="${esc(String(e.empNo||''))}" ${RSEL.has(String(e.empNo||''))?'checked':''} onchange="rselToggle(this.value,this.checked)"><span>${esc(e.name||'—')}</span><span class="muted">${esc(String(e.empNo||''))} · ${esc(bn(e))}</span></label>`).join('')}
+function rselCard(){const all=rselList().length;
+  return `<div class="card np" id="rsel"><h2>اختيار الموظفين للتقرير</h2>
+  <p class="muted">حدد الموظفين الذين تريدهم في التقرير. إذا لم تحدد أحدًا يظهر كل الموظفين.</p>
+  ${RSEL_OFF.includes(R.type)?'<p style="color:#b91c1c">هذا التقرير لا يدعم اختيار موظفين.</p>':''}
+  <div class="bar"><input placeholder="بحث بالاسم أو الرقم الوظيفي" value="${esc(window.__rsq||'')}" oninput="rselSearch(this.value)" style="flex:1;min-width:200px"><button class="btn" onclick="rselAll(true)">تحديد كل المعروض (${all})</button><button class="btn" onclick="rselClear()">إلغاء كل التحديد</button></div>
+  <p class="muted">المحددون: <b id="rseln">${RSEL.size}</b>${all>300?' — تُعرض أول 300 نتيجة':''}</p>
+  <div id="rsl" style="max-height:40vh;overflow:auto">${rselRows()}</div></div>`}
+window.rselRefresh=()=>{const n=document.getElementById('rseln');if(n)n.textContent=RSEL.size;const l=document.getElementById('rsl');if(l)l.innerHTML=rselRows();drawRep()};
+window.rselToggle=(v,on)=>{on?RSEL.add(String(v)):RSEL.delete(String(v));const n=document.getElementById('rseln');if(n)n.textContent=RSEL.size;drawRep()};
+window.rselSearch=v=>{window.__rsq=v;const l=document.getElementById('rsl');if(l)l.innerHTML=rselRows()};
+window.rselAll=on=>{rselList().forEach(e=>on?RSEL.add(String(e.empNo||'')):RSEL.delete(String(e.empNo||'')));rselRefresh()};
+window.rselClear=()=>{RSEL.clear();rselRefresh()};
+const _rep14=rep;
+rep=function(){const d=_rep14();
+  if(!RSEL.size||!d||!Array.isArray(d.head)||!Array.isArray(d.rows)||RSEL_OFF.includes(R.type))return d;
+  const i=d.head.indexOf('الرقم الوظيفي');if(i<0)return d;
+  const rows=d.rows.filter(r=>RSEL.has(rselTxt(r[i])));
+  return {...d,title:(d.title||'')+' — موظفون محددون',rows,sum:[['عدد الموظفين المحددين',rows.length]]};
+};
+const _repPage14=repPage;
+repPage=function(){const h=_repPage14();const m='<div id="res"></div>';const i=h.lastIndexOf(m);
+  return i<0?h:h.slice(0,i)+rselCard()+h.slice(i)};
 </script></body></html>
