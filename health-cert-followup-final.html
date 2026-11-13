@@ -547,7 +547,7 @@ dlgf(id?'تعديل بيانات الموظف':'إضافة موظف متعثر',
 var testForm=id=>dlgf('تسجيل اختبار رسمي',fi('date','تاريخ الاختبار','date',today())+fsel('result','النتيجة',['مجتاز','غير مجتاز'])+fsel('source','المصدر',db.settings.sources,'',1)+fta('notes','ملاحظات'),v=>{const r=addTest(id,v);if(!r.err&&v.result==='غير مجتاز'&&failsInCycle(emp(id))>=3)setTimeout(()=>toast('3 رسوب في هذه الدورة — يمكنك بدء دورة جديدة من ملف الموظف'),400);return r});
 const trainForm=id=>dlgf('تدخل تدريبي',fi('date','التاريخ','date',today())+fsel('type','نوع التدخل',db.settings.types)+fi('title','العنوان')+fi('topics','المواضيع')+fi('trainer','المدرب')+fi('duration','مدة التدريب (دقيقة)','number','','min=0')+fsel('attendance','الحضور',['حضر','لم يحضر'],'',1)+fta('description','الوصف')+`<div class="w"><span class="muted">الصعوبات التي ذكرها الموظف (اختر أكثر من واحدة)</span><div class="ck">${db.settings.diffs.map(d=>`<label><input type="checkbox" name="difficulty" value="${esc(d)}">${esc(d)}</label>`).join('')}</div></div>`+fi('newDiff','صعوبة مخصصة (تُضاف للقائمة)')+fta('notes','ملاحظات')+fta('trainerNotes','ملاحظات المدرب')+fi('nextStep','الإجراء التالي')+fi('simDue','موعد المحاكاة الداخلية (إن حُدد)','date'),v=>addTrain(id,v));
 const contactForm=id=>{const S=db.settings;dlgf('تسجيل تواصل',fi('date','التاريخ','date',today())+fsel('method','الطريقة',S.methods)+fsel('party','الطرف',S.parties)+fsel('outcome','النتيجة',S.outcomes)+fta('notes','ملاحظات')+fi('nextAction','الإجراء القادم')+fi('nextDate','تاريخ الإجراء القادم','date'),v=>addContact(id,v))};
-const verifForm=id=>dlgf('تسجيل تحقق يدوي',`<p class="muted w">تسجيل يدوي لنتيجة اطلعت عليها في المنصة — لا يوجد ربط تلقائي.</p>`+fi('date','تاريخ التحقق','date',today())+fsel('source','المصدر',db.settings.sources)+fsel('status','الحالة',VS,'ناجح')+fsel('certificateStatus','حالة الشهادة',CS)+fi('certificateNumber','رقم الشهادة')+fta('notes','ملاحظات'),v=>addVerif(id,v));
+const verifForm=id=>dlgf('تسجيل تحقق يدوي',`<p class="muted w">تسجيل يدوي لنتيجة اطلعت عليها في المنصة — لا يوجد ربط تلقائي.</p>`+fi('date','تاريخ التحقق','date',today())+fsel('source','المصدر',db.settings.sources)+fsel('status','الحالة',VS,'ناجح')+fsel('certificateStatus','حالة الشهادة',CS)+fi('certificateNumber','رقم الشهادة')+fi('issueDate','تاريخ إصدار الشهادة (اتركه فارغًا ليُحسب تلقائيًا)','date',''),fta('notes','ملاحظات'),v=>addVerif(id,v));
 async function act(k,id,x){if(k==='close'){const r=closeFollow(id);if(r.err)return toast(r.err,'err');toast('أُغلقت المتابعة ✅')}
 else if(k==='reopen')reopen(id);else if(k==='cycle'){if(!await ask('بدء دورة جديدة؟ تبقى الدورة السابقة ومحاولاتها محفوظة.',{ok:'بدء دورة'}))return;const r=newCycle(id,'إعادة دورة');if(r.err)return toast(r.err,'err')}
 else if(k==='del'){const e=emp(id);if(!await ask(`حذف الموظف <b>${esc(e.name)}</b> وجميع سجلاته نهائيًا؟`,{ok:'حذف'}))return;['tests','trains','contacts','verifs','cycles','sims'].forEach(t=>db[t]=db[t].filter(z=>z.empId!==id));db.emps=db.emps.filter(z=>z.id!==id);page='emps'}
@@ -3028,4 +3028,46 @@ rep=function(){const d=_rep14();
 const _repPage14=repPage;
 repPage=function(){const h=_repPage14();const m='<div id="res"></div>';const i=h.lastIndexOf(m);
   return i<0?h:h.slice(0,i)+rselCard()+h.slice(i)};
+/* ===== الشهادة الصحية: تاريخ الإصدار والانتهاء والتجديد والتثقيف الصحي ===== */
+const cfgYears=()=>+((db.settings||{}).certYears)||1;
+const cfgHE=()=>+((db.settings||{}).heYears)||3;
+const cfgWin=()=>+((db.settings||{}).renewWin)||60;
+const ymd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const addYears=(s,n)=>{const d=new Date(s+'T00:00:00');d.setFullYear(d.getFullYear()+n);return ymd(d)};
+const addDays=(s,n)=>{const d=new Date(s+'T00:00:00');d.setDate(d.getDate()+n);return ymd(d)};
+const dayDiff=(a,b)=>Math.round((new Date(a+'T00:00:00')-new Date(b+'T00:00:00'))/86400000);
+const isIssued=v=>v&&(v.certificateStatus==='صادرة'||v.status==='الشهادة صادرة');
+const certExpiry=v=>v.expiryDate||(v.issueDate?addYears(v.issueDate,cfgYears()):'');
+function certInfo(e){
+  const iss=vrOf(e).filter(v=>isIssued(v)&&v.issueDate);if(!iss.length)return null;
+  const last=iss[iss.length-1],exp=certExpiry(last);
+  const days=dayDiff(exp,today());
+  const passed=tsOf(e).filter(t=>(t.result==='ناجح'||t.result==='مجتاز')&&t.date);
+  const base=passed.length?passed[passed.length-1].date:'';
+  const he=base?addYears(base,cfgHE()):'';
+  const heDays=he?dayDiff(he,today()):null;
+  return {issue:last.issueDate,exp,days,
+    st:days<0?'منتهية':days<=cfgWin()?'تحتاج تجديدًا':'سارية',
+    base,he,heDays,heSt:heDays===null?'لا يوجد اختبار مجتاز':heDays<0?'متأخر':heDays<=cfgWin()?'مستحق قريبًا':'لاحقًا'}}
+const _addVerifB15=addVerif;
+addVerif=function(id,o){const e=emp(id);const issued=!!e&&isIssued(o);let anchor='';
+  if(issued){const prev=vrOf(e).filter(v=>isIssued(v)&&v.issueDate).pop();
+    if(prev){const pe=certExpiry(prev);if(pe&&o.date>=addDays(pe,-cfgWin())&&o.date<=pe)anchor=pe}}
+  const r=_addVerifB15(id,o);
+  if(r&&r.t&&issued){r.t.issueDate=o.issueDate||anchor||o.date;r.t.expiryDate=addYears(r.t.issueDate,cfgYears())}
+  return r};
+window.certCard=()=>{
+  const rows=E().map(e=>[e,certInfo(e)]).filter(([e,c])=>c&&(c.st!=='سارية'||(c.heSt==='مستحق قريبًا'||c.heSt==='متأخر')));
+  const exp=rows.filter(([e,c])=>c.st==='منتهية').length,ren=rows.filter(([e,c])=>c.st==='تحتاج تجديدًا').length,he=rows.filter(([e,c])=>c.heSt==='مستحق قريبًا'||c.heSt==='متأخر').length;
+  const list=rows.sort((a,b)=>a[1].days-b[1].days).slice(0,20);
+  const body=list.length?T_(['الموظف','الفرع','تاريخ الإصدار','تاريخ الانتهاء / التجديد','الأيام المتبقية','الوضع','اختبار التثقيف القادم'],
+    list.map(([e,c])=>({id:e.id,c:[esc(e.name||'—'),esc(bn(e)),esc(c.issue),esc(c.exp),c.days,esc(c.st),esc(c.he||'—')+(c.heSt==='مستحق قريبًا'||c.heSt==='متأخر'?' ⚠':'')]})),r=>`openEmp('${r.id}')`):'<p class="muted">لا توجد شهادات تحتاج متابعة.</p>';
+  return `<div class="card"><h2>متابعة الشهادات الصحية</h2><p class="muted">منتهية: ${exp} · تحتاج تجديدًا خلال ${cfgWin()} يومًا: ${ren} · اختبار تثقيف صحي مستحق قريبًا: ${he}</p>${body}</div>`};
+const _dashCertB15=dash;
+dash=function(){return certCard()+_dashCertB15()};
+const _profCertB15=profile;
+profile=function(){let h=_profCertB15();const e=emp(cur);if(!e)return h;const c=certInfo(e);
+  const body=c?`<p class="muted">تاريخ الإصدار: <b>${esc(c.issue)}</b> · الانتهاء / التجديد: <b>${esc(c.exp)}</b> · المتبقي: <b>${c.days} يوم</b> · الوضع: <b>${esc(c.st)}</b></p>
+    <p class="muted">آخر اختبار تثقيف صحي مجتاز: <b>${esc(c.base||'—')}</b> · الاختبار القادم: <b>${esc(c.he||'—')}</b>${c.heDays===null?'':` (${c.heDays} يوم)`} · ${esc(c.heSt)}</p>`:'<p class="muted">لم تُسجَّل شهادة صادرة بتاريخ إصدار بعد.</p>';
+  return h+`<div class="card"><h2>الشهادة الصحية</h2>${body}</div>`};
 </script></body></html>
