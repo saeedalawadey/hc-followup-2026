@@ -3134,19 +3134,20 @@ function priorFail(e){const h=e&&e.hist;return !!(h&&(h.unknown||+h.fails>0||h.l
 // الحالة بالمنطق القديم (65% وبدون المنصة) — للمقارنة قبل/بعد فقط
 function fsLegacy(e){const o=PASS;LEGACY_FS=true;PASS=PASS_OLD;try{return fs(e)}finally{LEGACY_FS=false;PASS=o}}
 
-// التحقق من المعيار: لكل اختبار رسمي حاسم، هل كان الموظف جاهزًا في المنصة قبله (4 نجاحات متتالية)؟
+// التحقق من المعيار: لكل اختبار رسمي حاسم، في أي مجموعة كان الموظف قبل تاريخه؟
+//   ready = جاهز (4 نجاحات متتالية) · entered = دخل المنصة ولم يجهز · none = لم يدخل المنصة قبل الاختبار
+var CRIT_GRP={ready:'جاهز في المنصة',entered:'دخل المنصة ولم يجهز',none:'لم يدخل المنصة'};
 function critStats(){
   let d;try{d=SIMTRK.data}catch(x){return null}if(!d||!Array.isArray(d.atts))return null;
   const by=new Map();d.atts.forEach(a=>{const k=nk(a.employee_id);if(!by.has(k))by.set(k,[]);by.get(k).push(a)});
   by.forEach(v=>v.sort((a,b)=>String(a.started_at||'').localeCompare(String(b.started_at||''))));
-  const streak=(e,date)=>{let s=0;(by.get(nk(e.empNo))||[]).forEach(a=>{if(String(a.started_at||'').slice(0,10)>=date)return;if(a.result==='pass')s++;else if(a.result==='fail')s=0});return s};
-  const r={rp:0,rf:0,rfl:0,np:0,nf:0,rows:[],reasons:{}};
+  const before=(e,date)=>{let s=0,n=0;(by.get(nk(e.empNo))||[]).forEach(a=>{if(String(a.started_at||'').slice(0,10)>=date)return;n++;if(a.result==='pass')s++;else if(a.result==='fail')s=0});return{s,n}};
+  const r={g:{ready:{p:0,f:0,fl:0},entered:{p:0,f:0,fl:0},none:{p:0,f:0,fl:0}},rows:[]};
   E().forEach(e=>tsOf(e).filter(t=>t.result==='ناجح'||t.result==='راسب').forEach(t=>{
-    const ready=streak(e,t.date||'9999-12-31')>=PLAT_STREAK;
-    if(ready&&t.result==='ناجح')r.rp++;
-    else if(ready){r.rf++;const why=t.failReason||'غير مسجَّل';r.reasons[why]=(r.reasons[why]||0)+1;if(why===LANG_REASON)r.rfl++;
-      r.rows.push({id:e.id,c:[esc(e.name||'—'),esc(e.empNo||'—'),esc(bn(e)),esc(t.date||'—'),esc(why)]})}
-    else if(t.result==='ناجح')r.np++;else r.nf++}));
+    const b=before(e,t.date||'9999-12-31'),k=b.s>=PLAT_STREAK?'ready':b.n>0?'entered':'none',g=r.g[k];
+    if(t.result==='ناجح'){g.p++;return}
+    g.f++;const why=t.failReason||'غير مسجَّل';if(why===LANG_REASON)g.fl++;
+    r.rows.push({id:e.id,c:[esc(e.name||'—'),esc(e.empNo||'—'),esc(bn(e)),esc(t.date||'—'),esc(CRIT_GRP[k]),b.s+' نجاح متتالٍ من '+b.n+' محاولة',esc(why)]})}));
   return r}
 const critPct=(a,b)=>b>0?Math.round(1000*a/b)/10+'%':'—';
 window.critSavePass=()=>{const v=+(document.getElementById('crit_pass')||{}).value;if(!(v>=1&&v<=100))return toast('أدخل نسبة بين 1 و100','err');
@@ -3159,12 +3160,13 @@ function critPage(){
   const cfg=`<div class="card"><h2>الإعدادات</h2>${load}<p class="muted">حد النجاح في المحاكاة الداخلية (للسجلات المُدخلة يدويًا). حد المنصة نفسه يُضبط داخل المنصة.</p><div class="bar"><input id="crit_pass" type="number" min="1" max="100" value="${PASS}" inputmode="numeric" style="width:90px"> <span>%</span><button class="btn p" onclick="critSavePass()">حفظ</button></div></div>`;
   const s=critStats();let ver;
   if(!s)ver=`<div class="card"><h2>التحقق من المعيار</h2><p class="muted">حمّل بيانات المنصة أولًا.</p></div>`;
-  else{const rt=s.rp+s.rf,nt=s.np+s.nf;
-    ver=`<div class="card"><h2>التحقق من المعيار</h2><p class="muted">كل اختبار رسمي ناجح أو راسب، مقارَنًا بجاهزية الموظف في المنصة قبل تاريخ الاختبار (${PLAT_STREAK} نجاحات متتالية من سجل المحاولات). تقدير من سجلات المنصة المتاحة.</p>
-      <div class="grid"><div class="k gr"><b>${critPct(s.rp,rt)}</b><span>نجاح الجاهزين رسميًا (${s.rp} من ${rt})</span></div>
-      <div class="k t"><b>${critPct(s.rp,rt-s.rfl)}</b><span>بعد استثناء الرسوب بسبب لغة الاختبار (${s.rfl})</span></div>
-      <div class="k a"><b>${critPct(s.np,nt)}</b><span>نجاح غير الجاهزين رسميًا (${s.np} من ${nt})</span></div></div>
-      ${s.rf?`<h3>جاهزون في المنصة ورسبوا رسميًا</h3>`+T_(['الموظف','الرقم الوظيفي','الفرع','تاريخ الاختبار','السبب'],s.rows,r=>`openEmp('${r.id}')`):'<p class="muted">لا يوجد جاهز رسب رسميًا حتى الآن.</p>'}</div>`}
+  else{const G=s.g,rt=G.ready.p+G.ready.f;
+    const row=k=>{const g=G[k],n=g.p+g.f;return `<tr><td>${CRIT_GRP[k]}</td><td>${g.p}</td><td>${g.f}${g.fl?` (لغة: ${g.fl})`:''}</td><td>${n}</td><td><b>${critPct(g.p,n)}</b></td></tr>`};
+    ver=`<div class="card"><h2>التحقق من المعيار</h2><p class="muted">كل اختبار رسمي ناجح أو راسب، مصنَّفًا حسب وضع الموظف في المنصة قبل تاريخ الاختبار (${PLAT_STREAK} نجاحات متتالية من سجل المحاولات). تقدير من سجلات المنصة المتاحة.</p>
+      <div class="grid"><div class="k gr"><b>${critPct(G.ready.p,rt)}</b><span>نجاح الجاهزين (${G.ready.p} من ${rt})</span></div>
+      <div class="k t"><b>${critPct(G.ready.p,rt-G.ready.fl)}</b><span>بعد استثناء الرسوب بسبب اللغة (${G.ready.fl})</span></div></div>
+      <div class="tw"><table><thead><tr><th>المجموعة</th><th>ناجح</th><th>راسب</th><th>الإجمالي</th><th>نسبة النجاح</th></tr></thead><tbody>${row('ready')}${row('entered')}${row('none')}</tbody></table></div>
+      ${s.rows.length?`<h3>كل من رسب رسميًا (${s.rows.length})</h3>`+T_(['الموظف','الرقم الوظيفي','الفرع','تاريخ الاختبار','المجموعة','محاولات المنصة قبله','السبب'],s.rows,r=>`openEmp('${r.id}')`):'<p class="muted">لا يوجد راسب رسميًا حتى الآن.</p>'}</div>`}
   const ch=E().filter(e=>!e.closed).map(e=>({e,a:fsLegacy(e),b:fs(e)})).filter(x=>x.a!==x.b);
   const sum={};ch.forEach(x=>{const k=x.a+' ← '+x.b;sum[k]=(sum[k]||0)+1});
   const chg=`<div class="card"><h2>تغيّر الحالات بعد تطبيق المعيار الجديد</h2><p class="muted">مقارنة الحالة بالمنطق القديم (حد 65% وبدون المنصة) مع الحالة الآن. ${ch.length?`عدد من تغيّرت حالته: <b>${ch.length}</b>`:'لا توجد تغييرات.'}</p>`+
