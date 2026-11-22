@@ -447,6 +447,7 @@ function HCBoot(interactive){
     db=bfMig(migrate4(cleanupCityBranchDuplicate(migrate(raw))));
     PASS=+((db.settings||{}).simPass)||70;
     if(db.settings&&db.settings.name==='نظام متابعة ومعالجة الموظفين الراسبين في اختبار الشهادة الصحية')db.settings.name='نظام متابعة الشهادة الصحية';
+    (db.batches||[]).forEach(b=>{if(b.title==='راسبو اختبار الشهادة الصحية')b.title=TTL});
     HCSync.ready=true;
     box.remove();
     save();render();
@@ -664,12 +665,12 @@ function fs(e){if(e.closed)return'مكتمل';const T=tsOf(e),dec=last(T.filter(
 if(pend&&aft(pend,dec))return'بانتظار النتيجة الرسمية';
 if(dec&&dec.result==='ناجح')return certOf(e)==='صادرة'?'تم التحقق':'ناجح رسمياً – بانتظار التحقق';
 const A=a=>a.filter(r=>aft(r,dec)),sm=A(smOf(e)),tr=A(trOf(e)),ct=A(ctOf(e)),ls=last(sm),lt=last(tr);
-if(ls&&!(lt&&aft(lt,ls))){if(+ls.pct>=PASS)return e.examDate?(e.examDate<today()?'بانتظار النتيجة الرسمية':'بانتظار الاختبار الرسمي'):'جاهز للاختبار الرسمي (ناجح في المحاكاة)';return'غير جاهز – يحتاج تدخل إضافي'}
+if(ls&&!(lt&&aft(lt,ls))){if(simOk(ls))return e.examDate?(e.examDate<today()?'بانتظار النتيجة الرسمية':'بانتظار الاختبار الرسمي'):'جاهز للاختبار الرسمي (ناجح في المحاكاة)';return'غير جاهز – يحتاج تدخل إضافي'}
 if(lt)return'بانتظار المحاكاة';if(ct.length)return'بانتظار التدريب';return dec&&!dec.imp?'راسب رسمياً – يحتاج تدخل إضافي':'مسجّل – بانتظار نتيجة الاختبار'}
 const mk=a=>e=>!e.closed&&a.includes(fs(e)),SS=STATUSES;
 PRED={all:()=>1,open:e=>!e.closed,closed:e=>!!e.closed,done:e=>!!e.closed,today:e=>!e.closed&&fs(e)!==SS[5],contact:e=>!e.closed&&(fs(e)===SS[0]||dueC(e)),train:mk([SS[1]]),sim:mk([SS[2]]),notready:mk([SS[3]]),ready:mk([SS[4]]),sched:mk([SS[5]]),result:mk([SS[6]]),offfail:mk([SS[7]]),extra:mk([SS[3],SS[7]]),verif:mk([SS[8]]),verified:mk([SS[9]])};
 const TILES=[['إجراءات اليوم','today','r'],['يحتاجون تواصل','contact','r'],['يحتاجون تدريب','train','r'],['يحتاجون محاكاة','sim','r'],['يحتاجون تدخلاً إضافياً','extra','r'],['غير جاهزين داخلياً','notready','a'],['جاهزون للاختبار الرسمي','ready','a'],['بانتظار الاختبار الرسمي','sched','b'],['بانتظار النتيجة الرسمية','result','b'],['راسبون رسمياً','offfail','r'],['ناجحون بانتظار التحقق','verif','o'],['تم التحقق – للإغلاق','verified','gr'],['مكتمل','done','g']],LBL=Object.fromEntries(TILES.map(([l,k])=>[k,l]));
-const BH2=['عدد المتابعين','مسجّل – بانتظار نتيجة الاختبار','يحتاج تواصل','يحتاج تدريب','غير جاهز','جاهز للاختبار','بانتظار النتيجة','راسب رسمياً','ناجح رسمياً','بانتظار التحقق','مكتمل'],bStat2=l=>{const r=[l.length,0,0,0,0,0,0,0,0,0,0],S=STATUSES;l.forEach(e=>{const f=fs(e);if(f===S[0])r[1]++;if(f===S[1])r[2]++;if(f===S[2]||f===S[3])r[3]++;if(f===S[6])r[4]++;if(f===S[7])r[5]++;if(f===S[8]||f===S[9])r[6]++;if(f===S[10])r[7]++;if(res(e)==='ناجح')r[8]++;if(f===S[11])r[9]++;if(f===S[13])r[10]++});return r};
+const BH2=['عدد المتابعين','لم يبدأوا / يحتاج تواصل','تم التواصل / بانتظار التدريب','في التدريب / المحاكاة','غير جاهز','جاهز للاختبار','بانتظار الاختبار / النتيجة','راسب رسمياً','ناجح – بانتظار التحقق','تم التحقق','مكتمل'],BH2_IX={0:1,1:1,15:1,2:2,3:2,4:3,5:3,14:3,6:4,7:5,8:6,9:6,10:7,11:8,12:9,13:10},bStat2=l=>{const r=[l.length,0,0,0,0,0,0,0,0,0,0];l.forEach(e=>{const k=BH2_IX[STATUSES.indexOf(fs(e))];if(k)r[k]++});return r};
 
 /* ---- العمليات ---- */
 const _aE=addEmp,_aT=addTrain,_aC=addContact;
@@ -697,7 +698,7 @@ return `<div class="card"><h2>${esc(g.name)}${g.off?' <span class="bd g">معط�
 /* ---- الدفعات ---- */
 const bat=id=>db.batches.find(b=>b.id===id),bMem=b=>E().filter(e=>e.batchId===b.id),bnm=b=>(bById(b.branchId)||{}).name||'—';
 function mkBatch(o,ids){const b={id:uid(),no:Math.max(0,...db.batches.map(x=>x.no||0))+1,regionId:(bById(o.branchId)||{}).regionId||'',branchId:o.branchId,created:today(),trainDate:o.trainDate||'',status:o.status||'جديدة',notes:o.notes||''};db.batches.push(b);ids.forEach(i=>{const e=emp(i);if(e)e.batchId=b.id});return b}
-function batchStats(l){const att=e=>trOf(e).some(t=>t.attendance==='حضر'),ls=e=>last(smOf(e)),c=f=>l.filter(f).length;return[['إجمالي الموظفين',l.length],['الحاضرون',c(att)],['غير الحاضرين',c(e=>!att(e)&&trOf(e).some(t=>t.attendance==='لم يحضر'))],['تم تدريبهم',c(e=>trOf(e).length)],['أجروا المحاكاة',c(ls)],['ناجحون داخلياً',c(e=>ls(e)&&+ls(e).pct>=PASS)],['غير جاهزين',c(e=>ls(e)&&+ls(e).pct<PASS)],['بانتظار الاختبار الرسمي',c(e=>PRED.ready(e)||PRED.sched(e)||PRED.result(e))],['رسمي: ناجح',c(e=>res(e)==='ناجح')],['رسمي: راسب',c(e=>res(e)==='راسب')]]}
+function batchStats(l){const att=e=>trOf(e).some(t=>t.attendance==='حضر'),ls=e=>last(smOf(e)),c=f=>l.filter(f).length;return[['إجمالي الموظفين',l.length],['الحاضرون',c(att)],['غير الحاضرين',c(e=>!att(e)&&trOf(e).some(t=>t.attendance==='لم يحضر'))],['تم تدريبهم',c(e=>trOf(e).length)],['أجروا المحاكاة',c(ls)],['ناجحون داخلياً',c(e=>ls(e)&&simOk(ls(e)))],['غير جاهزين',c(e=>ls(e)&&!simOk(ls(e)))],['بانتظار الاختبار الرسمي',c(e=>PRED.ready(e)||PRED.sched(e)||PRED.result(e))],['رسمي: ناجح',c(e=>res(e)==='ناجح')],['رسمي: راسب',c(e=>res(e)==='راسب')]]}
 function batchesPage(){return `<h1>الدفعات</h1><p class="sub">مجموعات الموظفين المرسلة من الفروع أو المجهزة للتدريب</p><div class="bar np"><button class="btn p" onclick="batchForm()">➕ دفعة جديدة</button></div>`+(db.batches.length?T_(['الدفعة','المنطقة','الفرع','أُنشئت','تاريخ التدريب','الموظفون','الحالة'],[...db.batches].reverse().map(b=>({id:b.id,c:['#'+b.no,esc((rg(b.regionId)||{}).name||'—'),esc(bnm(b)),b.created,b.trainDate||'—',bMem(b).length,badge(b.status)]})),r=>`BCUR='${r.id}';page='batch';render()`):'<div class="card empty">لا توجد دفعات. أنشئ دفعة أو استوردها من ملف فرع.</div>')}
 function batchPage(){const b=bat(BCUR);if(!b){page='batches';return batchesPage()}const l=bMem(b);return `<div class="bar np"><button class="btn" onclick="go('batches')">‹ الدفعات</button></div><div class="card"><h1>دفعة #${b.no} — ${esc(bnm(b))}</h1><p class="muted">${esc((rg(b.regionId)||{}).name||'')} · أُنشئت ${b.created} · التدريب ${b.trainDate||'—'} · ${badge(b.status)} ${esc(b.notes)}</p><div class="bar np"><button class="btn" onclick="batchForm('${b.id}')">✏️ تعديل</button><button class="btn p" onclick="batchAdd('${b.id}')">➕ إضافة موظفين</button></div></div><div class="rt">${batchStats(l).map(([k,v])=>`<div><b>${v}</b>${k}</div>`).join('')}</div>`+(l.length?T_(['الموظف','الرقم الوظيفي','الحالة','آخر محاكاة','النتيجة الرسمية'],l.map(e=>({id:e.id,c:[`<b>${esc(e.name)}</b>`,esc(e.empNo)||'—',badge(fs(e)),last(smOf(e))?last(smOf(e)).pct+'%':'—',badge(res(e))]})),r=>`openEmp('${r.id}')`):'<div class="card empty">لا موظفين في الدفعة</div>')}
 const batchForm=id=>{const b=id?bat(id):{status:'جديدة'};dlgf(id?'تعديل الدفعة':'دفعة جديدة',(id?fi('name','اسم الدفعة','text',b.name)+fi('received','تاريخ الاستلام','date',b.received||b.created):brSel(''))+fi('trainDate','تاريخ التدريب','date',b.trainDate)+fsel('status','الحالة',BST,b.status)+fta('notes','ملاحظات',b.notes),v=>{if(id)return void Object.assign(b,{name:v.name||b.name,received:v.received||b.received,trainDate:v.trainDate,status:v.status,notes:v.notes});if(!v.branchId)return{err:'اختر الفرع'};BCUR=mkBatch(v,[]).id;page='batch'})};
@@ -712,7 +713,7 @@ return `<h1>لوحة التحكم</h1><p class="sub">${esc(db.settings.name)} �
 const _ep=empsPage;empsPage=()=>_ep().replace('<div class="bar np">',(F.k&&F.k!=='all'?`<div class="demo np">الفلتر: <b>${LBL[F.k]||''}</b> <button class="btn s" onclick="F={};render()">إلغاء</button></div>`:'')+'<div class="bar np">');
 /* ---- ملف الموظف ---- */
 const _tl=timeline,_pf=profile;
-timeline=e=>{const o=_tl(e);smOf(e).forEach(s=>{o.push({d:s.date||'',c:+s.pct>=PASS?'#16a34a':'#d97706',t:`المحاكاة ${ORD[s.n]||s.n}: ${s.pct}% — ${s.result}`,s:[s.notes,(s.difficulty||[]).length&&'الصعوبات: '+s.difficulty.join('، ')].filter(Boolean).join(' · '),i:500});if(+s.pct>=PASS)o.push({d:s.date||'',c:'#16a34a',t:'أصبح جاهزاً للاختبار الرسمي',s:'',i:501})});return o.sort((a,b)=>a.d.localeCompare(b.d)||a.i-b.i)};
+timeline=e=>{const o=_tl(e);smOf(e).forEach(s=>{o.push({d:s.date||'',c:simOk(s)?'#16a34a':'#d97706',t:`المحاكاة ${ORD[s.n]||s.n}: ${s.pct}% — ${s.result}`,s:[s.notes,(s.difficulty||[]).length&&'الصعوبات: '+s.difficulty.join('، ')].filter(Boolean).join(' · '),i:500});if(simOk(s))o.push({d:s.date||'',c:'#16a34a',t:'أصبح جاهزاً للاختبار الرسمي',s:'',i:501})});return o.sort((a,b)=>a.d.localeCompare(b.d)||a.i-b.i)};
 profile=()=>{let h=_pf();const e=emp(cur);if(!e)return h;const f=fs(e),sm=smOf(e),ls=last(sm),dc=[...new Set([...trOf(e),...sm].flatMap(x=>x.difficulty||[]))],
 card=`<div class="card"><div class="muted">حالة الموظف الحالية</div><h1 style="margin:4px 0 8px">${badge(f)}</h1><div class="bar np">${nextBtn(e)}</div><div class="rt"><div><b>${ls?ls.pct+'%':'—'}</b>المحاكاة الداخلية (غير رسمي)<br><span>${sm.length} محاولة${ls?' · '+esc(ls.result):''}</span></div><div><b>${badge(res(e))}</b>آخر نتيجة رسمية<br><span>${tsOf(e).length} سجل رسمي</span></div><div><b>${dc.length||'—'}</b>الصعوبات<br><span>${esc(dc.join('، '))||'لم تُسجَّل'}</span></div></div></div>`;
 h=h.replace('<div class="card">',card+'<div class="card">').replace(/<button class="btn" onclick="act\('cycle'[^>]*>[^<]*<\/button>/,'').replace(`<button class="btn" onclick="trainForm('${e.id}')">`,`<button class="btn" onclick="simForm('${e.id}')">🧪 محاكاة داخلية</button><button class="btn" onclick="examForm('${e.id}')">🏫 موعد الاختبار الرسمي</button><button class="btn" onclick="trainForm('${e.id}')">`);
@@ -727,7 +728,7 @@ function clsRow(o,seen){if(!o.name)return['خطأ: بلا اسم','r'];if(!o.emp
 Object.keys(RTY).forEach(k=>delete RTY[k]);Object.assign(RTY,{rec:'الموظفون المستلمون',int:'التدريب الداخلي والمحاكاة (غير رسمي)',dif:'الصعوبات الأكثر تكراراً',off:'الاختبارات الرسمية',fol:'تقرير المتابعة',br:'حسب المنطقة والفرع'});
 function rep(){const L=E().filter(e=>(!R.branch||e.branchId===R.branch)&&(!R.status||fs(e)===R.status)),rng=!R.from&&!R.to,ids=new Set(L.map(e=>e.id)),I=d=>rng||inR(d),H0=['الموظف','الرقم الوظيفي',...(R.ids?['الهوية']:[]),'المنطقة','الفرع'],
 c0=e=>[e.name,e.empNo,...(R.ids?[e.iqama]:[]),(rg((bById(e.branchId)||{}).regionId)||{}).name||'—',bn(e)],trs=db.trains.filter(t=>ids.has(t.empId)&&I(t.date)),sms=db.sims.filter(s=>ids.has(s.empId)&&I(s.date)),tt=db.tests.filter(t=>ids.has(t.empId)&&I(t.date)).sort(byD),sum=[],cn=(a,f)=>a.filter(f).length;let head,rows;
-if(R.type==='int'){sum.push(['موظفون مدرَّبون',new Set(trs.map(t=>t.empId)).size],['جلسات التدريب',trs.length],['عدد المحاكاة',sms.length],['متوسط درجات المحاكاة',sms.length?Math.round(sms.reduce((a,s)=>a+ +s.pct,0)/sms.length)+'%':'—'],['نسبة تجاوز '+PASS+'%',sms.length?pct(cn(sms,s=>s.pct>=PASS),sms.length):'—']);head=[...H0,'جلسات التدريب','عدد المحاكاة','آخر محاكاة','النتيجة الداخلية'];
+if(R.type==='int'){sum.push(['موظفون مدرَّبون',new Set(trs.map(t=>t.empId)).size],['جلسات التدريب',trs.length],['عدد المحاكاة',sms.length],['متوسط درجات المحاكاة',sms.length?Math.round(sms.reduce((a,s)=>a+ +s.pct,0)/sms.length)+'%':'—'],['نسبة تجاوز '+PASS+'%',sms.length?pct(cn(sms,s=>simOk(s)),sms.length):'—']);head=[...H0,'جلسات التدريب','عدد المحاكاة','آخر محاكاة','النتيجة الداخلية'];
 rows=L.filter(e=>trs.some(t=>t.empId===e.id)||sms.some(s=>s.empId===e.id)).map(e=>{const s=last(smOf(e));return[...c0(e),cn(trs,t=>t.empId===e.id),cn(sms,x=>x.empId===e.id),s?s.pct+'%':'—',s?s.result:'—']})}
 else if(R.type==='dif'){const m={};L.forEach(e=>new Set([...trOf(e),...smOf(e)].flatMap(x=>x.difficulty||[])).forEach(d=>m[d]=(m[d]||0)+1));head=['الصعوبة','عدد الموظفين','النسبة من الراسبين'];rows=Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([d,k])=>[d,k,pct(k,L.length)])}
 else if(R.type==='off'){sum.push(['الاختبارات الرسمية',tt.length],['ناجح',cn(tt,t=>t.result==='ناجح')],['راسب',cn(tt,t=>t.result==='راسب')],['بانتظار النتيجة',cn(tt,t=>t.result==='بانتظار النتيجة')],['محاولات معروفة الرقم',cn(tt,t=>t.attemptNumber)]);head=[...H0,'التاريخ','المحاولة','النتيجة الرسمية','المصدر','ملاحظات'];rows=tt.map(t=>{const e=emp(t.empId);return[...c0(e),t.date,t.attemptNumber||'غير معروف',t.result,t.source,t.notes]})}
@@ -739,7 +740,7 @@ return{title:RTY[R.type],head,rows,sum}}
 /* ===================================================================
    v4: الهوية التشغيلية «الفرع + الرقم الوظيفي» — تعديل للمنطق الحالي
    =================================================================== */
-var TTL='راسبو اختبار الشهادة الصحية',SCOPE='نطاق النظام: متابعة الموظفين الذين ثبت رسوبهم في اختبار الشهادة الصحية الرسمي، حتى اجتياز الاختبار والتحقق من صدور الشهادة وإغلاق المتابعة — وليس نظام موارد بشرية عاماً.',DS={},FL={name:'الاسم',iqama:'الهوية/الإقامة',jobTitle:'المسمى الوظيفي',phone:'الجوال'},DL_={'ناجح':'مجتاز','راسب':'غير مجتاز'};
+var TTL='متابعة الشهادة الصحية',SCOPE='نطاق النظام: متابعة الموظفين في مسار الحصول على الشهادة الصحية — من دخول المنصة أو التسجيل حتى الجاهزية والاختبار الرسمي والتحقق من صدور الشهادة وإغلاق المتابعة — وليس نظام موارد بشرية عاماً.',DS={},FL={name:'الاسم',iqama:'الهوية/الإقامة',jobTitle:'المسمى الوظيفي',phone:'الجوال'},DL_={'ناجح':'مجتاز','راسب':'غير مجتاز'};
 const dl=x=>DL_[x]||x,nm=e=>e.name||'—';
 STATUSES.length=0;STATUSES.push('مسجّل – بانتظار نتيجة الاختبار','يحتاج تواصل','تم التواصل','بانتظار التدريب','تم التدريب','بانتظار المحاكاة','غير جاهز – يحتاج تدخل إضافي','جاهز للاختبار الرسمي (ناجح في المحاكاة)','بانتظار الاختبار الرسمي','بانتظار النتيجة الرسمية','راسب رسمياً – يحتاج تدخل إضافي','ناجح رسمياً – بانتظار التحقق','تم التحقق','مكتمل','في المحاكاة (المنصة)','لم يبدأ المحاكاة');
 Object.assign(BC,{'يحتاج تواصل':'r','بانتظار التدريب':'a','تم التدريب':'t'});
@@ -818,7 +819,7 @@ const pr=LEGACY_FS?null:platReady(e,dec);
 if(pr==='ready')return e.examDate?(e.examDate<t0?S[9]:S[8]):S[7];
 if(pr==='not')return S[6];
 if(pr==='act'&&!lt)return S[14];
-if(ls&&!(lt&&aft(lt,ls))){if(+ls.pct>=PASS)return e.examDate?(e.examDate<t0?S[9]:S[8]):S[7];return S[6]}
+if(ls&&!(lt&&aft(lt,ls))){if(simOk(ls))return e.examDate?(e.examDate<t0?S[9]:S[8]):S[7];return S[6]}
 if(lt){if(lt.attendance==='لم يحضر')return S[3];return lt.simDue?S[5]:S[4]}
 if(ct.length){const c=last(ct);if(c.outcome==='لم يرد'||(c.nextDate&&c.nextDate<=t0&&c.outcome!=='لم يحضر'))return S[1];const b=bat(e.batchId);if(c.outcome==='لم يحضر'||(b&&b.trainDate&&b.trainDate>=t0))return S[3];return S[2]}
 if(dec&&!dec.imp)return S[10];
@@ -948,8 +949,8 @@ return h+cyCard+brc};
 Object.keys(RTY).forEach(k=>delete RTY[k]);Object.assign(RTY,{rec:'الموظفون المستلمون (تحت المتابعة)',int:'التدريب الداخلي والمحاكاة (غير رسمي)',dif:'الصعوبات الأكثر تكراراً',off:'الاختبارات الرسمية — ملخص لكل موظف',offd:'الاختبارات الرسمية — سجل المحاولات',fol:'تقرير المتابعة',br:'حسب المنطقة والفرع',brl:'قوائم الفروع (بالرقم الوظيفي)'});
 rep=function(){const L=E().filter(e=>(!R.branch||e.branchId===R.branch)&&(!R.status||fs(e)===R.status)),rng=!R.from&&!R.to,ids=new Set(L.map(e=>e.id)),I=d=>rng||inR(d),H0=['الرقم الوظيفي','الموظف',...(R.ids?['الهوية']:[]),'المنطقة','الفرع'],
 c0=e=>[e.empNo||'—',nm(e),...(R.ids?[e.iqama]:[]),(rg((bById(e.branchId)||{}).regionId)||{}).name||'—',bn(e)],trs=db.trains.filter(t=>ids.has(t.empId)&&I(t.date)),sms=db.sims.filter(s=>ids.has(s.empId)&&I(s.date)),tt=db.tests.filter(t=>ids.has(t.empId)&&I(t.date)).sort(byD),sum=[],cn=(a,f)=>a.filter(f).length;let head,rows;
-if(R.type==='int'){sum.push(['موظفون مدرَّبون',new Set(trs.map(t=>t.empId)).size],['جلسات التدريب',trs.length],['عدد المحاكاة',sms.length],['متوسط درجات المحاكاة',sms.length?Math.round(sms.reduce((a,s)=>a+ +s.pct,0)/sms.length)+'%':'—'],['نسبة تجاوز '+PASS+'%',sms.length?pct(cn(sms,s=>s.pct>=PASS),sms.length):'—']);head=[...H0,'جلسات التدريب','عدد المحاكاة','آخر نسبة','هل حقق '+PASS+'%؟','الصعوبات'];
-rows=L.filter(e=>trs.some(t=>t.empId===e.id)||sms.some(s=>s.empId===e.id)).map(e=>{const s=last(smOf(e)),df=[...new Set([...trOf(e),...smOf(e)].flatMap(x=>x.difficulty||[]))].join('، ');return[...c0(e),cn(trs,t=>t.empId===e.id),cn(sms,x=>x.empId===e.id),s?s.pct+'%':'—',s?(+s.pct>=PASS?'نعم':'لا'):'—',df||'—']})}
+if(R.type==='int'){sum.push(['موظفون مدرَّبون',new Set(trs.map(t=>t.empId)).size],['جلسات التدريب',trs.length],['عدد المحاكاة',sms.length],['متوسط درجات المحاكاة',sms.length?Math.round(sms.reduce((a,s)=>a+ +s.pct,0)/sms.length)+'%':'—'],['نسبة تجاوز '+PASS+'%',sms.length?pct(cn(sms,s=>simOk(s)),sms.length):'—']);head=[...H0,'جلسات التدريب','عدد المحاكاة','آخر نسبة','هل حقق '+PASS+'%؟','الصعوبات'];
+rows=L.filter(e=>trs.some(t=>t.empId===e.id)||sms.some(s=>s.empId===e.id)).map(e=>{const s=last(smOf(e)),df=[...new Set([...trOf(e),...smOf(e)].flatMap(x=>x.difficulty||[]))].join('، ');return[...c0(e),cn(trs,t=>t.empId===e.id),cn(sms,x=>x.empId===e.id),s?s.pct+'%':'—',s?(simOk(s)?'نعم':'لا'):'—',df||'—']})}
 else if(R.type==='dif'){const m={};L.forEach(e=>new Set([...trOf(e),...smOf(e)].flatMap(x=>x.difficulty||[])).forEach(d=>m[d]=(m[d]||0)+1));head=['الصعوبة','عدد الموظفين','النسبة من الموظفين'];rows=Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([d,k])=>[d,k,pct(k,L.length)])}
 else if(R.type==='off'){const A=L.filter(e=>tsOf(e).some(t=>I(t.date))||(rng&&e.hist&&e.hist.lastResult));sum.push(['موظفون لديهم اختبارات رسمية',A.length],['إجمالي المحاولات',tt.length],['مجتاز',cn(tt,t=>t.result==='ناجح')],['غير مجتاز',cn(tt,t=>t.result==='راسب')],['بانتظار النتيجة',cn(tt,t=>t.result==='بانتظار النتيجة')]);head=[...H0,'عدد المحاولات','آخر نتيجة رسمية','تاريخ آخر اختبار','عدد مرات الرسوب'];rows=A.map(e=>{const T=tsOf(e),lt=last(T);return[...c0(e),T.length||'—',dl(res(e)),lt?lt.date:(e.hist&&e.hist.lastDate)||'—',fails(e)]})}
 else if(R.type==='offd'){sum.push(['المحاولات الرسمية',tt.length],['مجتاز',cn(tt,t=>t.result==='ناجح')],['غير مجتاز',cn(tt,t=>t.result==='راسب')],['بانتظار النتيجة',cn(tt,t=>t.result==='بانتظار النتيجة')],['محاولات معروفة الرقم',cn(tt,t=>t.attemptNumber)]);head=[...H0,'التاريخ','المحاولة','النتيجة الرسمية','المصدر','ملاحظات'];rows=tt.map(t=>{const e=emp(t.empId);return[...c0(e),t.date,t.attemptNumber||'غير معروف',dl(t.result),t.source,t.notes]})}
@@ -1074,6 +1075,8 @@ function buildCompData(){
   const pendTests = cn(tts, t=>t.result==='بانتظار النتيجة');
   const trainedIds = new Set(trs.map(t=>t.empId));
   const simIds = new Set(sms.map(s=>s.empId));
+  const decEmps = L.filter(e=>res(e)==='ناجح'||res(e)==='راسب'), passEmps = decEmps.filter(e=>res(e)==='ناجح');
+  const fsOpen = openEmps.map(e=>fs(e)), nS = (...ix)=>fsOpen.filter(f=>ix.some(i=>f===STATUSES[i])).length;
 
   /* --- الملخص التنفيذي --- */
   const summary = {
@@ -1091,8 +1094,11 @@ function buildCompData(){
     branchesAffected: branches.filter(b=>L.some(e=>e.branchId===b.id)).length,
     regionsAffected: regionIds.size,
     contactsCount: cts.length,
-    passPct: tts.length ? pct(passTests, tts.length) : '—',
-    failPct: tts.length ? pct(failTests, tts.length) : '—',
+    passPct: (passTests+failTests) ? pct(passTests, passTests+failTests) : '—',
+    failPct: (passTests+failTests) ? pct(failTests, passTests+failTests) : '—',
+    empDec: decEmps.length, empPass: passEmps.length,
+    empPassPct: decEmps.length ? pct(passEmps.length, decEmps.length) : '—',
+    rdReady: nS(7,8), rdNot: nS(6), rdAct: nS(2,3,4,5,14), rdNone: nS(0,1,15),
     trainPct: L.length ? pct(trainedIds.size, L.length) : '—',
     simPct: L.length ? pct(simIds.size, L.length) : '—'
   };
@@ -1149,7 +1155,7 @@ function buildCompData(){
       simCount: mySm.length,
       lastSimDate: ls?ls.date:'—',
       lastSimPct: ls?(ls.pct+'%'):'—',
-      lastSimResult: ls?(+ls.pct>=PASS?'اجتاز داخلياً':'لم يجتز'):'—',
+      lastSimResult: ls?(simOk(ls)?'اجتاز داخلياً':'لم يجتز'):'—',
       difficulties: [...new Set([...myTr,...mySm].flatMap(x=>x.difficulty||[]))].join('، ')||'—'
     };
   });
@@ -1157,8 +1163,8 @@ function buildCompData(){
     trained: trainedIds.size,
     trainSessions: trs.length,
     simSessions: sms.length,
-    simPassed: cn(sms,s=>+s.pct>=PASS),
-    simFailed: cn(sms,s=>+s.pct<PASS),
+    simPassed: cn(sms,s=>simOk(s)),
+    simFailed: cn(sms,s=>!simOk(s)),
     needRetrain: intRows.filter(r=>r.simCount && r.lastSimResult==='لم يجتز').length
   };
 
@@ -1407,7 +1413,12 @@ function renderCompHTML(D){
       ['حالات الاجتياز',s.passCount],
       ['حالات عدم الاجتياز',s.failCount],
       ['بانتظار النتيجة',s.pendCount],
-      ['نسبة الاجتياز',s.passPct],
+      ['نسبة اجتياز المحاولات (من النتائج الحاسمة)',s.passPct],
+      ['نسبة نجاح الموظفين (آخر نتيجة رسمية)',s.empPassPct+' ('+s.empPass+' من '+s.empDec+')'],
+      ['جاهزون للاختبار الرسمي',s.rdReady],
+      ['غير جاهزين',s.rdNot],
+      ['في التدريب أو المحاكاة',s.rdAct],
+      ['لم يبدأوا',s.rdNone],
       ['موظفون أكملوا التدريب',s.trainedCount],
       ['موظفون خضعوا للمحاكاة',s.simCount],
       ['جلسات التدريب',s.trainSessions],
@@ -1584,7 +1595,7 @@ window.exportCompRep = function(){
     A('الملخص التنفيذي',['المؤشر','القيمة'],[
       ['إجمالي الموظفين',s.totalEmps],['تحت المتابعة',s.openEmps],['مغلقون',s.closedEmps],
       ['إجمالي المحاولات',s.totalAttempts],['اجتياز',s.passCount],['عدم اجتياز',s.failCount],
-      ['بانتظار النتيجة',s.pendCount],['نسبة الاجتياز',s.passPct],
+      ['بانتظار النتيجة',s.pendCount],['نسبة اجتياز المحاولات (من النتائج الحاسمة)',s.passPct],['نسبة نجاح الموظفين (آخر نتيجة رسمية)',s.empPassPct+' ('+s.empPass+' من '+s.empDec+')'],['جاهزون للاختبار الرسمي',s.rdReady],['غير جاهزين',s.rdNot],['في التدريب أو المحاكاة',s.rdAct],['لم يبدأوا',s.rdNone],
       ['موظفون مدرَّبون',s.trainedCount],['موظفون خضعوا للمحاكاة',s.simCount],
       ['جلسات التدريب',s.trainSessions],['جلسات المحاكاة',s.simSessions],
       ['الفروع المتأثرة',s.branchesAffected],['المناطق المتأثرة',s.regionsAffected]
@@ -1828,7 +1839,7 @@ ${T?`<div class="demo np">الفلتر: <b>${T[0]}</b> <button class="btn s" onc
 <select onchange="bfSet('res',this.value)"><option value="">كل النتائج</option>${op(['لم تتم المتابعة',BF_LG,...BF_O].map(x=>[x,x]),BFS.res)}</select>
 <select onchange="bfSet('rg',this.value)"><option value="">كل المناطق</option>${op(rgs,BFS.rg)}</select>
 <button class="btn s" onclick="bfClr()">مسح الفلاتر</button></div><div id="bres"></div>
-<div class="card"><h2>الموظفون الراسبون (من نظام المتابعة الحالي)</h2><div class="grid" style="margin:0">${TILES.map(([l,k,c])=>`<div class="k ${c}" onclick="F={k:'${k}'};go('emps')"><b>${L.filter(PRED[k]).length}</b><span>${l}</span></div>`).join('')}</div></div>`}
+<div class="card"><h2>الموظفون قيد المتابعة (من نظام المتابعة الحالي)</h2><div class="grid" style="margin:0">${TILES.map(([l,k,c])=>`<div class="k ${c}" onclick="F={k:'${k}'};go('emps')"><b>${L.filter(PRED[k]).length}</b><span>${l}</span></div>`).join('')}</div></div>`}
 function bfSet(k,v,full){if(k==='k'&&BFS.k===v)v='';BFS[k]=v;full?render():drawBF()}
 function bfClr(){Object.assign(BFS,{q:'',st:'',res:'',rg:'',k:'',s:'',d:1});render()}
 function bfSort(k){if(BFS.s===k)BFS.d=-BFS.d;else{BFS.s=k;BFS.d=1}drawBF()}
@@ -1847,7 +1858,7 @@ else{const pr=i=>i.due==='late'?0:i.due==='today'?1:i.n===0?2:i.due==='soon'?3:4
 if(!all.length)return el.innerHTML='<div class="card empty">لا توجد فروع نشطة. أضف الفروع من «المناطق والفروع».<p><button class="btn p" onclick="go(\'branches\')">🏢 المناطق والفروع</button></p></div>';
 if(!A.length)return el.innerHTML='<div class="card empty">لا توجد نتائج مطابقة</div>';
 const th=(l,k)=>`<th class="bf-th" onclick="bfSort('${k}')">${l}${BFS.s===k?(BFS.d>0?' ▲':' ▼'):''}</th>`,
-fc=i=>i.live>0?`<span class="bf-lnk" onclick="bfEmps('${i.b.id}')">${i.live} ${i.live===1?'حالة راسبة':'حالات راسبة'}</span>`:i.L&&i.L.outcome===BF_O[0]?`<b>${i.L.failCount||'؟'}</b> <span class="muted">(لم يُسجَّلوا بعد)</span>`:i.L&&i.L.outcome===BF_O[1]?'<b>0</b> <span class="muted">· لا توجد حالات راسبة حاليًا</span>':'—',
+fc=i=>i.live>0?`<span class="bf-lnk" onclick="bfEmps('${i.b.id}')">${i.live} ${i.live===1?'حالة قيد المتابعة':'حالات قيد المتابعة'}</span>`:i.L&&i.L.outcome===BF_O[0]?`<b>${i.L.failCount||'؟'}</b> <span class="muted">(لم يُسجَّلوا بعد)</span>`:i.L&&i.L.outcome===BF_O[1]?'<b>0</b> <span class="muted">· لا توجد حالات راسبة حاليًا</span>':'—',
 nx=i=>!i.nd?'—':`${bfD(i.nd)} <span class="${i.due==='late'?'bf-late':'muted'}">${i.due==='late'?'متأخرة ':''}${bfRel(i)}</span>`;
 el.innerHTML=`<p class="muted">${A.length} من ${all.length} فرع / موقع مساند</p><div class="tw"><table><thead><tr>${th('الفرع','nm')}${th('آخر متابعة','lt')}${th('النتيجة','rs')}${th('الراسبون','fl')}${th('المتابعة القادمة','nx')}${th('الحالة','st')}</tr></thead><tbody>${A.map(i=>`<tr><td class="bf-n"><b>${esc(rb(i.b))}</b>${isSupportLocation(i.b)?' <span class="bd g">موقع مساند</span>':''}${i.n?` <span class="muted">· ${i.n} ${i.n===1?'دورة':'دورات'}</span>`:''}<div class="bf-act"><button class="btn s p" onclick="bfForm('${i.b.id}')">تسجيل متابعة</button><button class="btn s" onclick="bfOpen('${i.b.id}')">السجل</button>${i.cases?`<button class="btn s" onclick="bfReg('${i.b.id}')">+ تسجيل الموظفين الراسبين</button>`:''}</div></td><td data-l="آخر متابعة">${i.L?bfD(i.L.date):i.leg&&i.rc?bfD(i.rc)+' <span class="muted">(استلام)</span>':'—'}</td><td data-l="النتيجة">${i.L?esc(i.L.outcome):i.leg?esc(BF_LG):'لم تتم المتابعة'}</td><td data-l="الراسبون">${fc(i)}</td><td data-l="المتابعة القادمة">${nx(i)}</td><td data-l="الحالة">${badge(i.st)}</td></tr>`).join('')}</tbody></table></div>`}
 
@@ -1924,7 +1935,7 @@ W.sort((a,b)=>rb(a.i.b).localeCompare(rb(b.i.b),'ar'));
 const c=fn=>W.filter(fn).length,filt=!!(per||f.branch||f.st||f.cases||f.late);
 return{title:'تقرير متابعة الفروع',per,filt,
 sum:[[filt?'الفروع ضمن الفلتر':'إجمالي الفروع',W.length],['فروع تمت متابعتها',c(r=>r.cs.length)],['فروع لا توجد لديها حالات',c(r=>!r.i.cases&&!!r.L&&r.L.outcome===BF_O[1])],['فروع لديها حالات',c(r=>r.i.cases)],['متابعات متأخرة',c(r=>r.i.due==='late')],['متابعات مستحقة اليوم',c(r=>r.i.due==='today')]],
-head:['الفرع','عدد الدورات','آخر متابعة','آخر نتيجة','الراسبون حاليًا','الحالة','المتابعة القادمة'],
+head:['الفرع','عدد الدورات','آخر متابعة','آخر نتيجة','قيد المتابعة حاليًا','الحالة','المتابعة القادمة'],
 rows:W.map(r=>[rb(r.i.b),r.i.n,r.L?bfD(r.L.date):'—',r.L?r.L.outcome:r.i.leg?BF_LG:'لم تتم المتابعة',r.i.live,r.i.st,r.i.nd?bfD(r.i.nd)+(r.i.due==='late'?' (متأخرة)':''):'—']),
 chead:['الفرع','الدورة','التاريخ','الطريقة','الشخص','النتيجة','الراسبون','المتابعة القادمة','ملاحظات'],
 cyc:W.flatMap(r=>r.cs.map(x=>[rb(r.i.b),r.i.cs.indexOf(x)+1,bfD(x.date),x.method,x.person||'—',x.outcome,x.failCount==null?'—':x.failCount,x.nextDate?bfD(x.nextDate):'—',[x.notes,x.nextAction&&'الإجراء: '+x.nextAction].filter(Boolean).join(' · ')||'—']))}}
@@ -1952,7 +1963,7 @@ const _exBF=exportRep;exportRep=function(){return R.type==='bfr'?exportBFR():_ex
 
 /* ---- التصدير الكامل إلى Excel: ورقتان إضافيتان (تُستدعى من doExport) ---- */
 function bfExportSheets(A){const nm=id=>rb(bById(id))||'—';
-A('متابعة الفروع',['الفرع','عدد الدورات','آخر تواصل','طريقة التواصل','الشخص','النتيجة','الراسبون حاليًا','المتابعة القادمة','الحالة'],bfList().map(bfInfo).map(i=>[rb(i.b),i.n,i.L?i.L.date:'',i.L?i.L.method:'',i.L?i.L.person:'',i.L?i.L.outcome:i.leg?BF_LG:'لم تتم المتابعة',i.live,i.nd,i.st]));
+A('متابعة الفروع',['الفرع','عدد الدورات','آخر تواصل','طريقة التواصل','الشخص','النتيجة','قيد المتابعة حاليًا','المتابعة القادمة','الحالة'],bfList().map(bfInfo).map(i=>[rb(i.b),i.n,i.L?i.L.date:'',i.L?i.L.method:'',i.L?i.L.person:'',i.L?i.L.outcome:i.leg?BF_LG:'لم تتم المتابعة',i.live,i.nd,i.st]));
 A('دورات متابعة الفروع',['الفرع','الدورة','التاريخ','الطريقة','الشخص','النتيجة','الراسبون','المتابعة القادمة','الإجراء التالي','ملاحظات'],BFU().filter(x=>bById(x.branchId)).sort((a,b)=>nm(a.branchId).localeCompare(nm(b.branchId),'ar')||(a.date||'').localeCompare(b.date||'')||(a.seq||0)-(b.seq||0)).map(x=>[nm(x.branchId),bfCyc(x.branchId).indexOf(x)+1,x.date,x.method,x.person,x.outcome,x.failCount,x.nextDate,x.nextAction,x.notes]))}
 
 
@@ -2066,7 +2077,7 @@ A('دورات متابعة الفروع',['الفرع','الدورة','التا�
   function gsConfirmSync(){
     const p=db.healthEducationSync.lastPreview;if(!p)return;
     const sm=previewSummary(p); if(!sm.matched)return toast('لا توجد نتائج مطابقة جاهزة للحفظ. اعتمد الموظفين الجدد أو راجع اختلافات الفروع.','err');
-    ask(`سيتم حفظ ${sm.matched} نتيجة مطابقة في سجل المحاكاة الداخلية فقط. النتائج المكررة والأخطاء واختلافات الفروع لن تُحفظ. هل تعتمد المزامنة؟`,{ok:'تأكيد المزامنة'}).then(ok=>{if(!ok)return;let added=0,skipped=0;const now=new Date().toISOString();p.matched.forEach(o=>{if(!o.empId)return; if(attemptExists(o)){skipped++;return}const e=emp(o.empId);if(!e){skipped++;return}const c=curCycle(e)||{id:''};const s={id:uid(),seq:sq(),empId:e.id,cycleId:c.id,n:(db.sims.filter(z=>z.empId===e.id).length+1),date:o.date,score:o.correct!=null&&o.questions!=null?o.correct:'',max:o.questions!=null?o.questions:'',pct:Math.round(+o.pct*10)/10,result:+o.pct>=PASS?'ناجح في المحاكاة الداخلية':'غير جاهز',notes:'مزامنة من Google Sheets — نتيجة محاكاة داخلية',source:'محاكاة التثقيف الصحي — Google Sheets',attemptId:o.attemptId||'',attemptKey:simKey(o),model:o.model||'',region:o.region||'',branch:o.branch||bn(e),language:o.language||'',correct:o.correct!=null?o.correct:'',incorrect:o.incorrect!=null?o.incorrect:'',unanswered:o.unanswered!=null?o.unanswered:'',duration:o.duration!=null?o.duration:'',syncedAt:now};db.sims.push(s);added++});
+    ask(`سيتم حفظ ${sm.matched} نتيجة مطابقة في سجل المحاكاة الداخلية فقط. النتائج المكررة والأخطاء واختلافات الفروع لن تُحفظ. هل تعتمد المزامنة؟`,{ok:'تأكيد المزامنة'}).then(ok=>{if(!ok)return;let added=0,skipped=0;const now=new Date().toISOString();p.matched.forEach(o=>{if(!o.empId)return; if(attemptExists(o)){skipped++;return}const e=emp(o.empId);if(!e){skipped++;return}const c=curCycle(e)||{id:''};const s={id:uid(),seq:sq(),empId:e.id,cycleId:c.id,n:(db.sims.filter(z=>z.empId===e.id).length+1),date:o.date,score:o.correct!=null&&o.questions!=null?o.correct:'',max:o.questions!=null?o.questions:'',pct:Math.round(+o.pct*10)/10,result:simOk(o)?'ناجح في المحاكاة الداخلية':'غير جاهز',notes:'مزامنة من Google Sheets — نتيجة محاكاة داخلية',source:'محاكاة التثقيف الصحي — Google Sheets',attemptId:o.attemptId||'',attemptKey:simKey(o),model:o.model||'',region:o.region||'',branch:o.branch||bn(e),language:o.language||'',correct:o.correct!=null?o.correct:'',incorrect:o.incorrect!=null?o.incorrect:'',unanswered:o.unanswered!=null?o.unanswered:'',duration:o.duration!=null?o.duration:'',syncedAt:now};db.sims.push(s);added++});
       GS().lastSync=now;GS().syncedCount=added;GS().connectionStatus='متصل';db.healthEducationSync.lastSummary={...sm,added,skipped,confirmedAt:now};db.healthEducationSync.history.push({date:now,...sm,added,skipped});db.healthEducationSync.lastPreview=null;save();render();toast(`تمت المزامنة: أضيفت ${added} نتيجة، وتم تجاهل ${skipped} نتيجة.`);});
   }
   async function gsCheckForNewResults_(){
@@ -2089,14 +2100,14 @@ A('دورات متابعة الفروع',['الفرع','الدورة','التا�
       window.__gsAutoCheckRunning=false;
     }
   }
-  function gsMetrics(){const L=E(),latest=e=>last(smOf(e));return {total:L.length,tested:L.filter(e=>smOf(e).length).length,untested:L.filter(e=>!smOf(e).length).length,simPass:L.filter(e=>{const s=latest(e);return s&&+s.pct>=PASS}).length,simFail:L.filter(e=>{const s=latest(e);return s&&+s.pct<PASS}).length,need:L.filter(e=>fs(e)==='غير جاهز – يحتاج تدخل إضافي').length,ready:L.filter(e=>fs(e)==='جاهز للاختبار الرسمي (ناجح في المحاكاة)').length}}
+  function gsMetrics(){const L=E(),latest=e=>last(smOf(e));return {total:L.length,tested:L.filter(e=>smOf(e).length).length,untested:L.filter(e=>!smOf(e).length).length,simPass:L.filter(e=>{const s=latest(e);return s&&simOk(s)}).length,simFail:L.filter(e=>{const s=latest(e);return s&&!simOk(s)}).length,need:L.filter(e=>fs(e)==='غير جاهز – يحتاج تدخل إضافي').length,ready:L.filter(e=>fs(e)==='جاهز للاختبار الرسمي (ناجح في المحاكاة)').length}}
   
   const _dashGS=dash;dash=function(){simtrkAutoCheck();simBackupCheck();return _dashGS()+simtrkDashCard()+feeCard()};
   const _profileGS=profile;profile=function(){let h=_profileGS();const e=emp(cur);if(!e)return h;const sm=smOf(e).slice().sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));return h+`<div class="card"><h2>نتائج محاكاة التثقيف الصحي</h2>${sm.length?T_(['المحاولة','التاريخ','النموذج','النسبة','النتيجة','المصدر','الصحيحة','الخاطئة','بلا إجابة','المدة','اللغة'],sm.map(s=>[ORD[s.n]||s.n,s.date,esc(s.model)||'—',s.pct+'%',badge(s.result),esc(s.source)||'—',s.correct??'—',s.incorrect??'—',s.unanswered??'—',s.duration!=null?s.duration+' دقيقة':'—',esc(s.language)||'—'])):'<p class="muted">لا توجد محاولات محاكاة تثقيف صحي.</p>'}</div>`}
   const _repPageGS=repPage;
   repPage=function(){if(R.type==='gsim')return gsReportPage();return _repPageGS()};
   const _repGS=rep;
-  rep=function(){if(R.type!=='gsim')return _repGS();const L=E().filter(e=>(!R.branch||e.branchId===R.branch)),rng=!R.from&&!R.to,I=d=>rng||inR(d),ids=new Set(L.map(e=>e.id)),sms=db.sims.filter(s=>ids.has(s.empId)&&s.source==='محاكاة التثقيف الصحي — Google Sheets'&&I(s.date));const rows=sms.map(s=>{const e=emp(s.empId)||{};const b=bById(e.branchId)||{};return[(rg(b.regionId)||{}).name||s.region||'—',bn(e)||s.branch||'—',e.name||'—',e.empNo||'—',s.date||'—',s.model||'—',s.pct+'%',s.result||'—',s.correct??'—',s.incorrect??'—',s.unanswered??'—',s.duration??'—',s.language||'—',s.attemptId||'—']});const pass=sms.filter(s=>+s.pct>=PASS).length,emps=new Set(sms.map(s=>s.empId));return {title:'نتائج محاكاة التثقيف الصحي',head:['المنطقة','الفرع','اسم الموظف','الرقم الوظيفي','التاريخ','النموذج','النسبة','النتيجة','عدد الصحيحة','عدد الخاطئة','بلا إجابة','المدة','اللغة','معرّف المحاولة'],rows,sum:[['إجمالي المحاولات',sms.length],['عدد الموظفين المختبرين',emps.size],['عدد الناجحين',pass],['عدد غير المجتازين',sms.length-pass],['نسبة النجاح',pct(pass,sms.length)],['متوسط النسبة',sms.length?Math.round(sms.reduce((a,s)=>a+ +s.pct,0)/sms.length)+'%':'—']]}}
+  rep=function(){if(R.type!=='gsim')return _repGS();const L=E().filter(e=>(!R.branch||e.branchId===R.branch)),rng=!R.from&&!R.to,I=d=>rng||inR(d),ids=new Set(L.map(e=>e.id)),sms=db.sims.filter(s=>ids.has(s.empId)&&s.source==='محاكاة التثقيف الصحي — Google Sheets'&&I(s.date));const rows=sms.map(s=>{const e=emp(s.empId)||{};const b=bById(e.branchId)||{};return[(rg(b.regionId)||{}).name||s.region||'—',bn(e)||s.branch||'—',e.name||'—',e.empNo||'—',s.date||'—',s.model||'—',s.pct+'%',s.result||'—',s.correct??'—',s.incorrect??'—',s.unanswered??'—',s.duration??'—',s.language||'—',s.attemptId||'—']});const pass=sms.filter(s=>simOk(s)).length,emps=new Set(sms.map(s=>s.empId));return {title:'نتائج محاكاة التثقيف الصحي',head:['المنطقة','الفرع','اسم الموظف','الرقم الوظيفي','التاريخ','النموذج','النسبة','النتيجة','عدد الصحيحة','عدد الخاطئة','بلا إجابة','المدة','اللغة','معرّف المحاولة'],rows,sum:[['إجمالي المحاولات',sms.length],['عدد الموظفين المختبرين',emps.size],['عدد الناجحين',pass],['عدد غير المجتازين',sms.length-pass],['نسبة النجاح',pct(pass,sms.length)],['متوسط النسبة',sms.length?Math.round(sms.reduce((a,s)=>a+ +s.pct,0)/sms.length)+'%':'—']]}}
   function gsReportPage(){return _repPageGS().replace('تقرير الموظفين المتعثرين','تقرير الموظفين المتعثرين')}
   const _exportRepGS=exportRep;exportRep=function(){if(R.type!=='gsim')return _exportRepGS();const d=rep(),wb=XLSX.utils.book_new();wb.Workbook={Views:[{RTL:true}]};XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([d.head,...d.rows]),'محاكاة التثقيف الصحي');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['البيان','القيمة'],...d.sum]),'الإحصائيات');XLSX.writeFile(wb,'health-education-simulation-'+today()+'.xlsx');toast('تم تصدير تقرير محاكاة التثقيف الصحي')};
   // إضافة التقرير إلى قائمة التقارير دون حذف الموجود
@@ -2823,7 +2834,7 @@ window.trkRow=e=>{const d=SIMTRK.data,k=nk(e.empNo);
   const regs=(d.regs||[]).filter(r=>nk(r.employee_id)===k),sess=(d.sess||[]).filter(s=>nk(s.employee_id)===k);
   const pe=(d.emp||[]).find(x=>nk(x.employee_id)===k),pst=pe?String(pe.status||''):'';
   const atts=platAttsOf(e)||[],prog=(d.prog||[]).filter(p=>nk(p.employee_id)===k);
-  const entered=regs.some(r=>r.status==='approved')||sess.length>0;
+  const entered=!!pe||regs.some(r=>r.status==='approved')||sess.length>0;
   const passed=atts.some(a=>a.result==='pass'),started=prog.length>0||atts.length>0;
   const units=new Set(prog.filter(p=>p.passed_at).map(p=>p.unit_id)).size;
   let st;
@@ -3129,6 +3140,8 @@ function platRec(e){let d;try{d=SIMTRK.data}catch(x){return null}if(!d||!Array.i
 function platReady(e,dec){const r=platRec(e);if(!r)return null;const st=String(r.status||'');
   if(dec&&dec.result==='راسب'){const a=((SIMTRK.data.byEmp||{})[nk(e.empNo)]||{}).last,t=a?String(a).slice(0,10):'';if(!t||t<=(dec.date||''))return null}
   return st==='completed_ready'?'ready':st==='suspended_failures'?'not':st==='active'?'act':null}
+// نتيجة المحاكاة كما سُجّلت وقتها (لا تتغير بتغيير الحد لاحقًا)؛ وإن لم تُخزَّن نتيجة فبالحد الحالي
+function simOk(s){const r=String((s&&s.result)||'');if(/^(ناجح|اجتاز|مجتاز)/.test(r))return true;if(/^(غير جاهز|لم يجتز|راسب|غير مجتاز)/.test(r))return false;return +((s&&s.pct)||0)>=PASS}
 // من دخل النظام وله سجل رسوب سابق (لا نفترض الرسوب لمن لا سجل له)
 function priorFail(e){const h=e&&e.hist;return !!(h&&(h.unknown||+h.fails>0||h.lastResult==='راسب'))}
 // الحالة بالمنطق القديم (65% وبدون المنصة) — للمقارنة قبل/بعد فقط
